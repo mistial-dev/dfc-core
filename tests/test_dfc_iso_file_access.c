@@ -812,7 +812,7 @@ static MunitResult
 }
 
 // Which right each value command needs. NOT MEASURED on a genuine card (no
-// capture covers value-file rights), so this pins the documented model:
+// capture covers value-file rights), so this pins the intended rule:
 // Credit needs Read&Write only; Debit takes Read, Write or Read&Write;
 // LimitedCredit takes Write or Read&Write. Before this, Credit was gated like
 // Debit, so on a file whose Write right is free (E) any unauthenticated reader

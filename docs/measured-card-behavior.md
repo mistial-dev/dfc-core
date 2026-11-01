@@ -110,8 +110,8 @@ batch** (see `docs/capture-batches.md`; it can be retired as a unit).
 
 ## Rules that are not measured
 
-These follow the card's documented model, not a capture, and the code and tests
-say so. A capture that disagrees replaces them.
+These follow how DESFire access rights are meant to work, not a capture, and the
+code and tests say so. A capture that disagrees replaces them.
 
 - **Value commands need different rights.** Credit needs the Read&Write right.
   Debit takes Read, Write or Read&Write. LimitedCredit takes Write or Read&Write.

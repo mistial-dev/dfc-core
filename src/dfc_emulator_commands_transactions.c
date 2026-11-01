@@ -290,7 +290,7 @@ void dfc_emulator_command_value_delta(
     }
     // Which right each value command needs. NOT MEASURED: no capture of a genuine
     // card covers value-file rights (the card used had no room for a value file),
-    // so this follows the card's documented model: Credit needs Read&Write;
+    // so this follows the access model the card family uses: Credit needs Read&Write;
     // Debit needs Read, Write or Read&Write; LimitedCredit needs Write or
     // Read&Write (it exists so a reader without full Read&Write can add a
     // bounded amount). Before this, all three were gated as plain Write, which let
