@@ -149,7 +149,7 @@ FUZZ_DIR  ?= ../build-fuzz
 FUZZ_TIME ?= 300
 FUZZ_FLAGS := -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -g -O1
 
-.PHONY: test test-backends vectors vector-parser-regressions vector-profiles test-ev2-profile test-auth-profile check-cipher-profile-matrix \
+.PHONY: test test-backends vectors replay-plans check-replay-plans vector-parser-regressions vector-profiles test-ev2-profile test-auth-profile check-cipher-profile-matrix \
 	profile-builds role-builds ffi-role-builds \
 	codecs-disabled-link check-constant-time-auth check-command-modules check-command-registry check-teardown-wipes check-virtual-picc-staging check-iso-dep-block-numbers check-jni-wipes check-jni-result-buffers check-jni-export-inventory \
 	check-credential-passes \
@@ -228,7 +228,7 @@ test_dfc_transaction_snapshot_large: test_dfc_transaction_snapshot.c \
 $(TOOLS): %: %.c $(COMMON)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-test: check-common-runtime check-constant-time-auth check-command-modules check-command-registry check-teardown-wipes check-virtual-picc-staging check-iso-dep-block-numbers check-jni-wipes check-jni-result-buffers check-jni-export-inventory check-virtual-picc-auth-cleanup check-credential-passes check-snapshot-secret-policy check-decoder-registry check-random-failure-registry check-secure-messaging-policy check-ffi-export-inventory check-ffi-layout-registry check-cipher-profile-matrix vectors vector-parser-regressions vector-profiles $(TESTS) $(FAULT_TEST) $(DES_CHAIN_FAULT_TEST) $(SECURE_MESSAGING_FAULT_TEST) $(AUTH_BACKEND_FAULT_TEST) $(EV2_RESPONSE_FAULT_TEST) $(SDM_FAULT_TEST) $(KEY_SET_WIPE_TEST) $(REDUCED_TESTS) $(TOOLS) profile-builds role-builds ffi-role-builds codecs-disabled-link test-ev2-profile test-auth-profile
+test: check-common-runtime check-constant-time-auth check-command-modules check-command-registry check-teardown-wipes check-virtual-picc-staging check-iso-dep-block-numbers check-jni-wipes check-jni-result-buffers check-jni-export-inventory check-virtual-picc-auth-cleanup check-credential-passes check-snapshot-secret-policy check-decoder-registry check-random-failure-registry check-secure-messaging-policy check-ffi-export-inventory check-ffi-layout-registry check-cipher-profile-matrix vectors check-replay-plans vector-parser-regressions vector-profiles $(TESTS) $(FAULT_TEST) $(DES_CHAIN_FAULT_TEST) $(SECURE_MESSAGING_FAULT_TEST) $(AUTH_BACKEND_FAULT_TEST) $(EV2_RESPONSE_FAULT_TEST) $(SDM_FAULT_TEST) $(KEY_SET_WIPE_TEST) $(REDUCED_TESTS) $(TOOLS) profile-builds role-builds ffi-role-builds codecs-disabled-link test-ev2-profile test-auth-profile
 	@for t in $(TESTS); do echo "=== $$t ==="; ./$$t || exit 1; done
 	./$(FAULT_TEST)
 	./$(DES_CHAIN_FAULT_TEST)
@@ -254,6 +254,25 @@ $(CONFORMANCE_RUNNER)_%: test_dfc_conformance_vectors.c $(CONFORMANCE_COMMON)
 vectors: $(CONFORMANCE_RUNNER)
 	@test -n "$(DFC_VECTORS)" || (echo "no DESFire conformance vectors found"; exit 1)
 	./$(CONFORMANCE_RUNNER) $(DFC_VECTORS)
+
+# Replay plans are what the language bindings run (see docs/conformance-vector-format.md).
+# They are committed so no binding job needs this C runner; check-replay-plans fails
+# when a vector changed without `make -C tests replay-plans`.
+PLAN_DIR := replay-plans
+
+replay-plans: $(CONFORMANCE_RUNNER)
+	rm -rf $(PLAN_DIR)
+	mkdir -p $(PLAN_DIR)
+	./$(CONFORMANCE_RUNNER) --export-plans $(PLAN_DIR) $(DFC_VECTORS)
+
+check-replay-plans: $(CONFORMANCE_RUNNER)
+	@rm -rf $(PLAN_DIR).check && mkdir -p $(PLAN_DIR).check
+	@./$(CONFORMANCE_RUNNER) --export-plans $(PLAN_DIR).check $(DFC_VECTORS) > /dev/null \
+		|| { rm -rf $(PLAN_DIR).check; exit 1; }
+	@diff -r $(PLAN_DIR) $(PLAN_DIR).check > /dev/null \
+		|| { rm -rf $(PLAN_DIR).check; \
+		echo "tests/$(PLAN_DIR) is stale: run make -C tests replay-plans"; exit 1; }
+	@rm -rf $(PLAN_DIR).check
 
 vector-parser-regressions: $(CONFORMANCE_RUNNER)
 	python3 check_vector_parser.py ./$(CONFORMANCE_RUNNER)
