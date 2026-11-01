@@ -59,6 +59,12 @@ bool dfc_emulator_command_file_allows_write(const DfcFile* file, const DfcEmulat
 #if DFC_ENABLE_RECORD_FILES
 bool dfc_emulator_command_file_allows_read_write(const DfcFile* file, const DfcEmulator* emulator);
 #endif
+static inline size_t dfc_emulator_record_usable_capacity(const DfcFile* file) {
+    if(!file) return 0;
+    if(file->type == DFC_FILE_TYPE_CYCLIC_RECORD)
+        return file->state.record.max_records > 1 ? (size_t)file->state.record.max_records - 1 : 0;
+    return file->state.record.max_records;
+}
 uint8_t dfc_emulator_command_file_access_refusal_status(const DfcFile* file, bool write);
 #if DFC_ENABLE_DELEGATED_APPLICATIONS
 uint16_t

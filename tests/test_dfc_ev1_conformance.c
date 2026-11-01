@@ -2569,7 +2569,8 @@ static MunitResult test_record_transaction_visibility(const MunitParameter param
     return MUNIT_OK;
 }
 
-static MunitResult test_single_record_cyclic_is_safe(const MunitParameter params[], void* data) {
+static MunitResult
+    test_malformed_single_record_cyclic_is_rejected(const MunitParameter params[], void* data) {
     (void)params;
     (void)data;
     DfcCredential credential;
@@ -2613,10 +2614,11 @@ static MunitResult test_single_record_cyclic_is_safe(const MunitParameter params
     const uint8_t commit[] = {0x90, 0xC7, 0x00, 0x00, 0x00};
     const uint8_t read_all[] = {
         0x90, 0xBB, 0x00, 0x00, 0x07, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    assert_status(session, write, sizeof(write), DFC_STATUS_OK);
-    assert_status(session, commit, sizeof(commit), DFC_STATUS_OK);
+    assert_status(session, write, sizeof(write), DFC_STATUS_BOUNDARY_ERROR);
+    assert_status(session, commit, sizeof(commit), DFC_STATUS_NO_CHANGES);
     assert_status(session, read_all, sizeof(read_all), DFC_STATUS_BOUNDARY_ERROR);
     munit_assert_uint32(credential.files[0].state.record.count, ==, 0);
+    munit_assert_false(credential.files[0].transaction_pending);
     dfc_virtual_picc_session_free(session);
     return MUNIT_OK;
 }
@@ -2957,8 +2959,8 @@ static MunitTest tests[] = {
      NULL,
      MUNIT_TEST_OPTION_NONE,
      NULL},
-    {"/single-record-cyclic-is-safe",
-     test_single_record_cyclic_is_safe,
+    {"/malformed-single-record-cyclic-is-rejected",
+     test_malformed_single_record_cyclic_is_rejected,
      NULL,
      NULL,
      MUNIT_TEST_OPTION_NONE,

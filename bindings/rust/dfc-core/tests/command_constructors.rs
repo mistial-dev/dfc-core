@@ -2,14 +2,28 @@ use dfc_core::{Command, Error, iso_append_record_apdu, parse_iso7816_response};
 
 #[test]
 fn iso_append_record_helpers_preserve_two_byte_status() {
-    assert_eq!(
-        iso_append_record_apdu(3, &[0xa5, 0x5a]).expect("valid APPEND RECORD"),
-        [0x00, 0xe2, 0x00, 0x18, 0x02, 0xa5, 0x5a]
-    );
-    assert_eq!(
-        parse_iso7816_response(&[0x11, 0x22, 0x6a, 0x82]).expect("valid response"),
-        (&[0x11, 0x22][..], 0x6a82)
-    );
+    for line in include_str!("fixtures/iso7816-helper-vectors.txt")
+        .lines()
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+    {
+        let fields: Vec<&str> = line.split('|').collect();
+        let input = decode_hex(fields[1]);
+        if fields[0] == "append-record" {
+            assert_eq!(
+                iso_append_record_apdu(fields[2].parse().expect("SFI"), &input)
+                    .expect("valid APPEND RECORD"),
+                decode_hex(fields[3])
+            );
+        } else {
+            assert_eq!(fields[0], "parse-response");
+            let (data, status) = parse_iso7816_response(&input).expect("valid response");
+            assert_eq!(data, decode_hex(fields[2]));
+            assert_eq!(
+                status,
+                u16::from_str_radix(fields[3], 16).expect("status word")
+            );
+        }
+    }
 }
 
 fn frame(command: Command) -> Vec<u8> {

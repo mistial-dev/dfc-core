@@ -53,7 +53,16 @@ typedef enum {
     DfcSdmRenderRandomExhausted,
     DfcSdmRenderOk,
 } DfcSdmRenderStatus;
-DfcSdmRenderStatus dfc_emulator_render_sdm_read_status(DfcEmulator* emulator, DfcFile* file);
+typedef enum {
+    DfcSdmReadFamilyNative = 1,
+    DfcSdmReadFamilyNativeIsoDep,
+    DfcSdmReadFamilyIso7816,
+} DfcSdmReadFamily;
+DfcSdmRenderStatus dfc_emulator_render_sdm_read_status(
+    DfcEmulator* emulator,
+    DfcFile* file,
+    DfcSdmReadFamily family);
+void dfc_emulator_retire_sdm_read_cache(DfcEmulator* emulator);
 #endif
 
 typedef enum {

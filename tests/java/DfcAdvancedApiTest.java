@@ -8,6 +8,8 @@ import com.cindersocket.dfc.DfcSdm;
 import com.cindersocket.dfc.DfcTransactionMacVerifier;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HexFormat;
 
@@ -45,7 +47,7 @@ public final class DfcAdvancedApiTest {
     throw new AssertionError(message);
   }
 
-  private static void testIsoChainedConstructorsAndAppendRecord() {
+  private static void testIsoChainedConstructorsAndAppendRecord() throws Exception {
     require(DfcCommand.readData(1, 2, 3, true).instruction() == 0xAD, "wrong ReadData opcode");
     require(DfcCommand.writeData(1, 2, hex("A5"), true).instruction() == 0x8D,
         "wrong WriteData opcode");
@@ -55,11 +57,20 @@ public final class DfcAdvancedApiTest {
         "wrong WriteRecord opcode");
     require(DfcCommand.updateRecord(1, 2, 3, hex("A5"), true).instruction() == 0xBA,
         "wrong UpdateRecord opcode");
-    requireHex(
-        DfcIso7816.appendRecord(3, hex("A55A")), "00E2001802A55A", "wrong APPEND RECORD APDU");
-    var response = DfcIso7816.parseResponse(hex("11226A82"));
-    requireHex(response.data(), "1122", "wrong ISO response data");
-    require(response.statusWord() == 0x6A82, "wrong ISO status word");
+    for (String line : Files.readAllLines(Path.of("tests", "iso7816-helper-vectors.txt"))) {
+      if (line.isEmpty() || line.startsWith("#"))
+        continue;
+      String[] fields = line.split("\\|", -1);
+      if (fields[0].equals("append-record")) {
+        requireHex(DfcIso7816.appendRecord(Integer.parseInt(fields[2]), hex(fields[1])), fields[3],
+            "wrong APPEND RECORD APDU");
+      } else {
+        require(fields[0].equals("parse-response"), "unknown ISO helper vector");
+        var response = DfcIso7816.parseResponse(hex(fields[1]));
+        requireHex(response.data(), fields[2], "wrong ISO response data");
+        require(response.statusWord() == Integer.parseInt(fields[3], 16), "wrong ISO status word");
+      }
+    }
   }
 
   private static void requireIllegalArgument(CheckedOperation operation, String message) {

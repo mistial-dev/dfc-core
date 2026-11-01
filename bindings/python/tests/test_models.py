@@ -29,8 +29,21 @@ def test_command_validation_and_encoding() -> None:
 
 
 def test_iso_append_record_helpers() -> None:
-    assert build_iso_append_record_apdu(3, bytes.fromhex("A55A")) == bytes.fromhex("00E2001802A55A")
-    assert parse_iso7816_response(bytes.fromhex("11226A82")) == (bytes.fromhex("1122"), 0x6A82)
+    vectors = Path(__file__).parents[3] / "tests" / "iso7816-helper-vectors.txt"
+    for line in vectors.read_text().splitlines():
+        if not line or line.startswith("#"):
+            continue
+        operation, input_hex, auxiliary, expected = line.split("|")
+        if operation == "append-record":
+            assert build_iso_append_record_apdu(
+                int(auxiliary), bytes.fromhex(input_hex)
+            ) == bytes.fromhex(expected)
+        else:
+            assert operation == "parse-response"
+            assert parse_iso7816_response(bytes.fromhex(input_hex)) == (
+                bytes.fromhex(auxiliary),
+                int(expected, 16),
+            )
 
 
 def test_command_constructors_match_shared_vectors() -> None:

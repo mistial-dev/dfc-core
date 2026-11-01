@@ -2718,6 +2718,20 @@
       }
     },
     {
+      "path": "v6/synthetic/sdm-read-family-command-boundaries.vec",
+      "sha256": "fbc40b4d94aa123482e2af77aae461dd327fa20609b0db75254e7c9768702882",
+      "size": 2859,
+      "role": "emulator-vector",
+      "metadata": {
+        "name": "SDM read families and logical command boundaries",
+        "case-id": "ev3-sdm-read-family-command-boundaries",
+        "source": "derived from hardware-genuine-ev3-sdm-picc-native-iso setup and SDM continuation captures",
+        "origin": "synthetic",
+        "replayable": true,
+        "steps": 35
+      }
+    },
+    {
       "path": "v6/synthetic/sdm-reconfiguration-resets-read-counter.vec",
       "sha256": "ce16b4c66d4503e6c8eac7627aa8e72e4da8a5bdc9c7aae97b58521bef32dc14",
       "size": 1531,

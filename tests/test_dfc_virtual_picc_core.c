@@ -26,6 +26,34 @@ static void assert_zeroed_bytes(const uint8_t* bytes, size_t length) {
         munit_assert_uint8(bytes[i], ==, 0);
 }
 
+static DfcVirtualPiccStatus exchange_wrapped_data_read(
+    DfcVirtualPiccSession* session,
+    uint8_t instruction,
+    uint8_t file_number,
+    uint32_t offset,
+    uint32_t length,
+    uint8_t* response,
+    size_t response_capacity,
+    size_t* response_len) {
+    const uint8_t command[] = {
+        DFC_ISO7816_CLA_WRAPPER,
+        instruction,
+        0,
+        0,
+        7,
+        file_number,
+        (uint8_t)offset,
+        (uint8_t)(offset >> 8),
+        (uint8_t)(offset >> 16),
+        (uint8_t)length,
+        (uint8_t)(length >> 8),
+        (uint8_t)(length >> 16),
+        0,
+    };
+    return dfc_virtual_picc_iso_dep_exchange(
+        session, command, sizeof(command), response, response_capacity, response_len);
+}
+
 static void activate_iso_dep(
     DfcVirtualPiccSession* session,
     uint8_t cid,
@@ -169,6 +197,288 @@ static MunitResult
     munit_assert_size(response_len, ==, 5);
     munit_assert_memory_equal(2, response + 3, ((uint8_t[]){0x90, 0x00}));
     munit_assert_uint32(file->state.data.sdm_read_counter, ==, sdm_counter + 1);
+    dfc_virtual_picc_session_free(session);
+    return MUNIT_OK;
+}
+
+static MunitResult
+    test_sdm_read_family_and_boundary_lifecycle(const MunitParameter params[], void* user_data) {
+    (void)params;
+    (void)user_data;
+    DfcCredential credential;
+    load_standard_credential(&credential);
+    credential.card.generation = DfcGenerationEv3;
+    DfcFile* file = &credential.files[0];
+    file->access_rights = 0xEEEE;
+    munit_assert_true(dfc_file_resize(&credential, file, 100));
+    uint8_t* file_data = dfc_file_data(&credential, file);
+    for(size_t index = 0; index < file->data_len; index++)
+        file_data[index] = (uint8_t)index;
+    dfc_file_sdm_flag_set(file, DfcSdmFlagEnabled, true);
+    DfcFile* non_sdm_file = dfc_credential_create_file(&credential, file->app_index, 1);
+    munit_assert_not_null(non_sdm_file);
+    non_sdm_file->type = DFC_FILE_TYPE_STANDARD_DATA;
+    non_sdm_file->comm_settings = DFC_COMM_PLAIN;
+    non_sdm_file->access_rights = 0xEEEE;
+    munit_assert_true(dfc_file_resize(&credential, non_sdm_file, 4));
+    memset(dfc_file_data(&credential, non_sdm_file), 0xA5, non_sdm_file->data_len);
+    DfcFile* record_file = dfc_credential_create_file(&credential, file->app_index, 2);
+    munit_assert_not_null(record_file);
+    record_file->type = DFC_FILE_TYPE_LINEAR_RECORD;
+    record_file->comm_settings = DFC_COMM_PLAIN;
+    record_file->access_rights = 0xEEEE;
+    record_file->state.record.size = 2;
+    record_file->state.record.max_records = 2;
+    record_file->state.record.count = 1;
+    munit_assert_true(dfc_file_resize(&credential, record_file, 4));
+    memset(dfc_file_data(&credential, record_file), 0x5A, record_file->data_len);
+
+    DfcVirtualPiccSession* session = dfc_virtual_picc_session_alloc(&credential);
+    munit_assert_not_null(session);
+    DfcVirtualPiccActivation activation;
+    munit_assert_int(
+        dfc_virtual_picc_scan_iso14443a(session, &activation), ==, DfcVirtualPiccStatusOk);
+    session->emulator->selected_application = DfcEmulatorSelectedApplicationApp;
+    session->emulator->selected_app_index = file->app_index;
+    session->iso_file_selected = true;
+    session->iso_file_index = 0;
+    uint8_t response[DFC_EMULATOR_CHAIN_BUFFER_SIZE];
+    size_t response_len = 0;
+
+    file->state.data.sdm_read_counter = 10;
+    dfc_emulator_retire_sdm_read_cache(session->emulator);
+    munit_assert_int(
+        exchange_wrapped_data_read(
+            session,
+            DFC_CMD_READ_DATA,
+            file->number,
+            0,
+            1,
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 11);
+    munit_assert_int(
+        exchange_wrapped_data_read(
+            session,
+            DFC_CMD_READ_DATA,
+            file->number,
+            1,
+            1,
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 11);
+
+    munit_assert_int(
+        exchange_wrapped_data_read(
+            session,
+            DFC_CMD_READ_DATA_ISO,
+            file->number,
+            2,
+            1,
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 12);
+    munit_assert_int(
+        exchange_wrapped_data_read(
+            session,
+            DFC_CMD_READ_DATA,
+            file->number,
+            3,
+            1,
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 13);
+
+    const uint8_t get_file_ids[] = {DFC_ISO7816_CLA_WRAPPER, DFC_CMD_GET_FILE_IDS, 0, 0, 0};
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_exchange(
+            session, get_file_ids, sizeof(get_file_ids), response, sizeof(response), &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_false(session->emulator->sdm_read_cache_valid);
+    munit_assert_int(
+        exchange_wrapped_data_read(
+            session,
+            DFC_CMD_READ_DATA,
+            file->number,
+            4,
+            1,
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 14);
+
+    const uint8_t iso_read_0[] = {0, DFC_ISO7816_INS_READ_BINARY, 0, 0, 1};
+    const uint8_t iso_read_1[] = {0, DFC_ISO7816_INS_READ_BINARY, 0, 1, 1};
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_exchange(
+            session, iso_read_0, sizeof(iso_read_0), response, sizeof(response), &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 15);
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_exchange(
+            session, iso_read_1, sizeof(iso_read_1), response, sizeof(response), &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 15);
+    munit_assert_int(
+        exchange_wrapped_data_read(
+            session,
+            DFC_CMD_READ_DATA,
+            file->number,
+            5,
+            1,
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 16);
+
+    dfc_emulator_retire_sdm_read_cache(session->emulator);
+    file->state.data.sdm_read_counter = 20;
+    munit_assert_int(
+        exchange_wrapped_data_read(
+            session,
+            DFC_CMD_READ_DATA,
+            file->number,
+            0,
+            0,
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint8(response[response_len - 1], ==, DFC_CMD_ADDITIONAL_FRAME);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 21);
+    const uint8_t additional_frame[] = {
+        DFC_ISO7816_CLA_WRAPPER, DFC_CMD_ADDITIONAL_FRAME, 0, 0, 0};
+    while(response[response_len - 1] == DFC_CMD_ADDITIONAL_FRAME) {
+        munit_assert_int(
+            dfc_virtual_picc_iso_dep_exchange(
+                session,
+                additional_frame,
+                sizeof(additional_frame),
+                response,
+                sizeof(response),
+                &response_len),
+            ==,
+            DfcVirtualPiccStatusOk);
+        munit_assert_uint32(file->state.data.sdm_read_counter, ==, 21);
+    }
+
+    dfc_emulator_retire_sdm_read_cache(session->emulator);
+    file->state.data.sdm_read_counter = 30;
+    response_len = SIZE_MAX;
+    munit_assert_int(
+        exchange_wrapped_data_read(
+            session, DFC_CMD_READ_DATA_ISO, file->number, 0, 0, response, 1, &response_len),
+        ==,
+        DfcVirtualPiccStatusBufferTooSmall);
+    munit_assert_size(response_len, ==, 0);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 31);
+    munit_assert_int(
+        exchange_wrapped_data_read(
+            session,
+            DFC_CMD_READ_DATA_ISO,
+            file->number,
+            0,
+            0,
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 31);
+
+    /* A different, non-SDM ISO data file is a logical-command boundary. */
+    dfc_emulator_retire_sdm_read_cache(session->emulator);
+    file->state.data.sdm_read_counter = 40;
+    munit_assert_int(
+        exchange_wrapped_data_read(
+            session,
+            DFC_CMD_READ_DATA,
+            file->number,
+            0,
+            1,
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 41);
+    session->iso_file_index = (size_t)(non_sdm_file - credential.files);
+    response_len = SIZE_MAX;
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_exchange(
+            session, iso_read_0, sizeof(iso_read_0), response, 2, &response_len),
+        ==,
+        DfcVirtualPiccStatusBufferTooSmall);
+    munit_assert_size(response_len, ==, 0);
+    munit_assert_true(session->emulator->sdm_read_cache_valid);
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_exchange(
+            session, iso_read_0, sizeof(iso_read_0), response, sizeof(response), &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_false(session->emulator->sdm_read_cache_valid);
+    munit_assert_int(
+        exchange_wrapped_data_read(
+            session,
+            DFC_CMD_READ_DATA,
+            file->number,
+            0,
+            1,
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 42);
+
+    /* READ RECORD also retires an unrelated SDM data-file continuation. */
+    session->iso_file_index = (size_t)(record_file - credential.files);
+    const uint8_t iso_read_record[] = {0, DFC_ISO7816_INS_READ_RECORD, 1, 0, 2};
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_exchange(
+            session,
+            iso_read_record,
+            sizeof(iso_read_record),
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_false(session->emulator->sdm_read_cache_valid);
+    munit_assert_int(
+        exchange_wrapped_data_read(
+            session,
+            DFC_CMD_READ_DATA,
+            file->number,
+            0,
+            1,
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, 43);
+
     dfc_virtual_picc_session_free(session);
     return MUNIT_OK;
 }
@@ -2318,6 +2628,12 @@ static MunitResult
 }
 
 static MunitTest tests[] = {
+    {"/sdm-read-family-and-boundary-lifecycle",
+     test_sdm_read_family_and_boundary_lifecycle,
+     NULL,
+     NULL,
+     MUNIT_TEST_OPTION_NONE,
+     NULL},
     {"/iso-command-aborts-native-response-chain",
      test_iso_command_aborts_native_response_chain,
      NULL,

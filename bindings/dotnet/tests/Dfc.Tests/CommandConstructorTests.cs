@@ -12,13 +12,34 @@ public sealed class CommandConstructorTests
     [Test]
     public void IsoAppendRecordAndResponseHelpersPreserveTwoByteStatus()
     {
-        Assert.That(
-            DfcIso7816.BuildAppendRecord(3, new byte[] { 0xa5, 0x5a }),
-            Is.EqualTo(new byte[] { 0x00, 0xe2, 0x00, 0x18, 0x02, 0xa5, 0x5a })
-        );
-        var parsed = DfcIso7816.ParseResponse(new byte[] { 0x11, 0x22, 0x6a, 0x82 });
-        Assert.That(parsed.Data.ToArray(), Is.EqualTo(new byte[] { 0x11, 0x22 }));
-        Assert.That(parsed.StatusWord, Is.EqualTo(0x6a82));
+        foreach (var line in File.ReadLines(Path.Combine(TestContext.CurrentContext.TestDirectory, "iso7816-helper-vectors.txt")))
+        {
+            if (line.Length == 0 || line.StartsWith('#'))
+            {
+                continue;
+            }
+            var fields = line.Split('|');
+            if (fields[0] == "append-record")
+            {
+                Assert.That(
+                    DfcIso7816.BuildAppendRecord(
+                        byte.Parse(fields[2], CultureInfo.InvariantCulture),
+                        Convert.FromHexString(fields[1])
+                    ),
+                    Is.EqualTo(Convert.FromHexString(fields[3]))
+                );
+            }
+            else
+            {
+                Assert.That(fields[0], Is.EqualTo("parse-response"));
+                var parsed = DfcIso7816.ParseResponse(Convert.FromHexString(fields[1]));
+                Assert.That(parsed.Data.ToArray(), Is.EqualTo(Convert.FromHexString(fields[2])));
+                Assert.That(
+                    parsed.StatusWord,
+                    Is.EqualTo(ushort.Parse(fields[3], NumberStyles.HexNumber, CultureInfo.InvariantCulture))
+                );
+            }
+        }
     }
 
     [Test]

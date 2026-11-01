@@ -1352,6 +1352,9 @@ bool dfc_emulator_handle_command(
     void* context) {
     bool authentication_exchange = false;
     bool preserve_auth_transaction = false;
+#if DFC_ENABLE_SDM
+    bool sdm_af_response_continuation = false;
+#endif
     if(buffer_len > 0) {
         uint8_t command = buffer[0];
         authentication_exchange = command == DFC_CMD_AUTHENTICATE_LEGACY ||
@@ -1364,6 +1367,18 @@ bool dfc_emulator_handle_command(
                                   command == DFC_CMD_AUTHENTICATE_EV2_NON_FIRST;
 #endif
         if(command == DFC_CMD_ADDITIONAL_FRAME) {
+#if DFC_ENABLE_SDM
+            sdm_af_response_continuation =
+                !emulator->command_chain_active && !emulator->awaiting_step2 &&
+#if DFC_ENABLE_EV2_SECURE_MESSAGING
+                !emulator->ev2_authentication_pending &&
+#endif
+#if DFC_ENABLE_DELEGATED_APPLICATIONS
+                !emulator->delegated_creation_pending &&
+#endif
+                (emulator->get_version_frame != 0 || emulator->df_names_pending ||
+                 emulator->pending_chain_len > emulator->pending_chain_offset);
+#endif
             authentication_exchange = emulator->awaiting_step2;
             preserve_auth_transaction = emulator->awaiting_step2 &&
                                         emulator->pending_auth_cipher ==
@@ -1424,6 +1439,29 @@ bool dfc_emulator_handle_command(
     // A caller-controlled source can be replenished and retried. Its adapter
     // replaces the provisional status, so do not publish failure side effects.
     if(dfc_random_failure_is_retryable()) return true;
+#if DFC_ENABLE_SDM
+    if(buffer_len > 0 && dfc_bytebuf_get_size_bytes(tx_buffer) > 0) {
+        uint8_t command = buffer[0];
+        uint8_t status = dfc_bytebuf_get_data(tx_buffer)[0];
+        bool accepted = status == DFC_STATUS_OK || status == DFC_CMD_ADDITIONAL_FRAME ||
+                        status == DFC_STATUS_SPECIAL_SUCCESS;
+        bool input_continuation_pending = emulator->command_chain_active ||
+                                          emulator->awaiting_step2;
+#if DFC_ENABLE_EV2_SECURE_MESSAGING
+        input_continuation_pending = input_continuation_pending ||
+                                     emulator->ev2_authentication_pending;
+#endif
+#if DFC_ENABLE_DELEGATED_APPLICATIONS
+        input_continuation_pending = input_continuation_pending ||
+                                     emulator->delegated_creation_pending;
+#endif
+        bool sdm_read = command == DFC_CMD_READ_DATA || command == DFC_CMD_READ_DATA_ISO;
+        bool response_continuation = command == DFC_CMD_ADDITIONAL_FRAME &&
+                                     sdm_af_response_continuation;
+        if(accepted && !input_continuation_pending && !sdm_read && !response_continuation)
+            dfc_emulator_retire_sdm_read_cache(emulator);
+    }
+#endif
     dfc_emulator_command_apply_ev1_response_secure_messaging(emulator, buffer[0], tx_buffer);
     finalize_native_command(
         emulator, preserve_transaction_on_failure, authentication_exchange, tx_buffer);

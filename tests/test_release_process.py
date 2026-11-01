@@ -217,6 +217,7 @@ class ReleaseProcessTests(unittest.TestCase):
             "v6-auth-commands.dfcb": ROOT / "examples/credentials/v6-auth-commands.dfcb",
             "command-constructor-vectors.txt": ROOT / "tests/command-constructor-vectors.txt",
             "command-constructor-boundaries.txt": ROOT / "tests/command-constructor-boundaries.txt",
+            "iso7816-helper-vectors.txt": ROOT / "tests/iso7816-helper-vectors.txt",
         }
         for name, canonical in fixtures.items():
             with self.subTest(fixture=name):

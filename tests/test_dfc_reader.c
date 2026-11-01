@@ -17,10 +17,86 @@
 
 #include "dfc_reader_test_link.h"
 
+static size_t decode_hex(const char* text, uint8_t* out, size_t capacity) {
+    size_t length = strlen(text);
+    if((length & 1u) != 0 || length / 2 > capacity) return SIZE_MAX;
+    for(size_t i = 0; i < length / 2; i++) {
+        unsigned value = 0;
+        if(sscanf(text + i * 2, "%2x", &value) != 1) return SIZE_MAX;
+        out[i] = (uint8_t)value;
+    }
+    return length / 2;
+}
+
+static bool split_iso_helper_vector(char* line, char* fields[4]) {
+    fields[0] = line;
+    for(size_t i = 1; i < 4; i++) {
+        char* separator = strchr(fields[i - 1], '|');
+        if(!separator) return false;
+        *separator = '\0';
+        fields[i] = separator + 1;
+    }
+    fields[3][strcspn(fields[3], "\r\n")] = '\0';
+    return strchr(fields[3], '|') == NULL;
+}
+
+static FILE* open_iso_helper_vectors(void) {
+    FILE* vectors = fopen("iso7816-helper-vectors.txt", "r");
+    return vectors ? vectors : fopen("tests/iso7816-helper-vectors.txt", "r");
+}
+
+static void assert_iso_helper_vectors(void) {
+    FILE* vectors = open_iso_helper_vectors();
+    munit_assert_not_null(vectors);
+    char line[1600];
+    while(fgets(line, sizeof(line), vectors)) {
+        if(line[0] == '#' || line[0] == '\n') continue;
+        char* fields[4];
+        munit_assert_true(split_iso_helper_vector(line, fields));
+        uint8_t input[700], expected_data[700], output[700];
+        size_t input_len = decode_hex(fields[1], input, sizeof(input));
+        munit_assert_size(input_len, !=, SIZE_MAX);
+        if(strcmp(fields[0], "append-record") == 0) {
+            size_t expected_len = decode_hex(fields[3], expected_data, sizeof(expected_data));
+            munit_assert_size(expected_len, !=, SIZE_MAX);
+            size_t output_len = 0;
+            munit_assert_int(
+                dfc_reader_iso_append_record_apdu(
+                    (uint8_t)strtoul(fields[2], NULL, 10),
+                    input,
+                    input_len,
+                    output,
+                    sizeof(output),
+                    &output_len),
+                ==,
+                DfcReaderOk);
+            munit_assert_size(output_len, ==, expected_len);
+            munit_assert_memory_equal(expected_len, output, expected_data);
+        } else {
+            munit_assert_string_equal(fields[0], "parse-response");
+            size_t expected_len = decode_hex(fields[2], expected_data, sizeof(expected_data));
+            munit_assert_size(expected_len, !=, SIZE_MAX);
+            const uint8_t* parsed_data = NULL;
+            size_t parsed_len = 0;
+            uint16_t status_word = 0;
+            munit_assert_int(
+                dfc_reader_iso7816_parse_response(
+                    input, input_len, &parsed_data, &parsed_len, &status_word),
+                ==,
+                DfcReaderOk);
+            munit_assert_size(parsed_len, ==, expected_len);
+            munit_assert_memory_equal(expected_len, parsed_data, expected_data);
+            munit_assert_uint(status_word, ==, strtoul(fields[3], NULL, 16));
+        }
+    }
+    fclose(vectors);
+}
+
 static MunitResult test_iso_append_record_helpers(const MunitParameter params[], void* data) {
     (void)params;
     (void)data;
     const uint8_t record[] = {0xA5, 0x5A};
+    assert_iso_helper_vectors();
     uint8_t apdu[300];
     size_t apdu_len = 0;
     munit_assert_int(

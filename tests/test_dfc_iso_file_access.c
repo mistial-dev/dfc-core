@@ -502,6 +502,47 @@ static MunitResult test_iso_append_record_sfi_preserves_current_ef(
 }
 
 static MunitResult
+    test_cyclic_single_slot_rejected_consistently(const MunitParameter params[], void* user_data) {
+    (void)params;
+    (void)user_data;
+    uint8_t response[8];
+    size_t response_len = 0;
+    DfcCredential credential;
+    DfcVirtualPiccSession* session = prepare_session(&credential, DFC_FILE_TYPE_CYCLIC_RECORD);
+    DfcFile* file = &credential.files[0];
+    file->access_rights = ACCESS_FREE;
+    file->state.record.size = 3;
+    file->state.record.max_records = 1;
+    file->state.record.count = 0;
+    munit_assert_true(dfc_file_resize(&credential, file, 3));
+    memset(dfc_file_data(&credential, file), 0xCC, 3);
+    session->emulator->selected_application = DfcEmulatorSelectedApplicationApp;
+    session->emulator->selected_app_index = file->app_index;
+
+    uint8_t native_write[] = {DFC_CMD_WRITE_RECORD, file->number, 0, 0, 0, 3, 0, 0, 1, 2, 3};
+    exchange(
+        session, native_write, sizeof(native_write), response, sizeof(response), &response_len);
+    munit_assert_size(response_len, ==, 1);
+    munit_assert_uint8(response[0], ==, DFC_STATUS_BOUNDARY_ERROR);
+    native_write[0] = DFC_CMD_WRITE_RECORD_ISO;
+    exchange(
+        session, native_write, sizeof(native_write), response, sizeof(response), &response_len);
+    munit_assert_size(response_len, ==, 1);
+    munit_assert_uint8(response[0], ==, DFC_STATUS_BOUNDARY_ERROR);
+
+    const uint8_t append[] = {0, DFC_ISO7816_INS_APPEND_RECORD, 0, 0, 3, 1, 2, 3};
+    exchange(session, append, sizeof(append), response, sizeof(response), &response_len);
+    assert_conditions_not_satisfied(response, response_len);
+    munit_assert_uint32(file->state.record.count, ==, 0);
+    munit_assert_false(file->transaction_pending);
+    munit_assert_memory_equal(
+        3, dfc_file_data(&credential, file), ((uint8_t[]){0xCC, 0xCC, 0xCC}));
+
+    dfc_virtual_picc_session_free(session);
+    return MUNIT_OK;
+}
+
+static MunitResult
     test_iso_append_record_transaction_and_cyclic(const MunitParameter params[], void* user_data) {
     (void)params;
     (void)user_data;
@@ -865,6 +906,7 @@ static MunitResult
     dfc_file_sdm_flag_set(file, DfcSdmFlagEnabled, true);
     file->state.data.sdm_read_counter = 41;
     session->emulator->sdm_read_cache_valid = false;
+    session->emulator->sdm_read_cache_family = 0;
     uint8_t cache[DFC_SDM_READ_CACHE_SIZE];
     memcpy(cache, session->emulator->sdm_read_cache, sizeof(cache));
 
@@ -876,9 +918,11 @@ static MunitResult
     munit_assert_size(response_len, ==, 0);
     munit_assert_uint32(file->state.data.sdm_read_counter, ==, 41);
     munit_assert_false(session->emulator->sdm_read_cache_valid);
+    munit_assert_uint8(session->emulator->sdm_read_cache_family, ==, 0);
     munit_assert_memory_equal(sizeof(cache), session->emulator->sdm_read_cache, cache);
     exchange(session, read, sizeof(read), response, sizeof(response), &response_len);
     munit_assert_uint32(file->state.data.sdm_read_counter, ==, 42);
+    munit_assert_uint8(session->emulator->sdm_read_cache_family, ==, DfcSdmReadFamilyIso7816);
     dfc_virtual_picc_session_free(session);
     return MUNIT_OK;
 }
@@ -992,6 +1036,12 @@ static MunitTest tests[] = {
     {"/append-record", test_iso_append_record, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
     {"/append-record-sfi-preserves-current-ef",
      test_iso_append_record_sfi_preserves_current_ef,
+     NULL,
+     NULL,
+     MUNIT_TEST_OPTION_NONE,
+     NULL},
+    {"/cyclic-single-slot-rejected-consistently",
+     test_cyclic_single_slot_rejected_consistently,
      NULL,
      NULL,
      MUNIT_TEST_OPTION_NONE,

@@ -198,6 +198,12 @@
       ]
     },
     {
+      "id": "sdm-read-family-command-boundaries",
+      "evidence": [
+        "synthetic/sdm-read-family-command-boundaries.vec"
+      ]
+    },
+    {
       "id": "sdm-reserved-access-rights",
       "evidence": [
         "synthetic/sdm-reserved-access-rights-are-atomic.vec"

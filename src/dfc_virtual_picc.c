@@ -1182,8 +1182,7 @@ static DfcVirtualPiccStatus handle_iso_append_record(
         return write_iso_conditions_not_satisfied(response, response_capacity, response_len);
 #endif
 
-    size_t capacity = file->state.record.max_records;
-    if(file->type == DFC_FILE_TYPE_CYCLIC_RECORD) capacity = capacity > 0 ? capacity - 1 : 0;
+    size_t capacity = dfc_emulator_record_usable_capacity(file);
     if(capacity == 0 ||
        (file->type == DFC_FILE_TYPE_LINEAR_RECORD && file->state.record.count >= capacity)) {
         return write_iso_conditions_not_satisfied(response, response_capacity, response_len);
@@ -1544,8 +1543,8 @@ static DfcVirtualPiccStatus handle_iso_file_command(
             return DfcVirtualPiccStatusBufferTooSmall;
 #if DFC_ENABLE_SDM
         if(dfc_file_sdm_flag_is_set(file, DfcSdmFlagEnabled)) {
-            DfcSdmRenderStatus render_status =
-                dfc_emulator_render_sdm_read_status(session->emulator, file);
+            DfcSdmRenderStatus render_status = dfc_emulator_render_sdm_read_status(
+                session->emulator, file, DfcSdmReadFamilyIso7816);
             if(render_status == DfcSdmRenderRandomExhausted)
                 return DfcVirtualPiccStatusProtocolError;
             if(render_status != DfcSdmRenderOk) {
@@ -1984,6 +1983,39 @@ static DfcVirtualPiccStatus virtual_picc_iso_dep_exchange(
         response_len);
 }
 
+#if DFC_ENABLE_SDM
+static void finalize_standard_iso_sdm_boundary(
+    DfcVirtualPiccSession* session,
+    const uint8_t* command,
+    size_t command_len,
+    bool consumed_sdm_read,
+    DfcVirtualPiccStatus status,
+    const uint8_t* response,
+    size_t response_len) {
+    if(status != DfcVirtualPiccStatusOk || !command || command_len < 2 ||
+       command[0] != DFC_ISO7816_CLA_STANDARD || consumed_sdm_read || !response ||
+       response_len < DFC_ISO7816_STATUS_WORD_LENGTH)
+        return;
+    if(response[response_len - 2] == DFC_ISO7816_SW_OK_HI &&
+       response[response_len - 1] == DFC_ISO7816_SW_OK_LO)
+        dfc_emulator_retire_sdm_read_cache(session->emulator);
+}
+
+static bool standard_iso_command_consumes_sdm_read(
+    const DfcVirtualPiccSession* session,
+    const uint8_t* command,
+    size_t command_len) {
+    if(!session || !command || command_len < 2 || command[0] != DFC_ISO7816_CLA_STANDARD ||
+       command[1] != DFC_ISO7816_INS_READ_BINARY || !session->iso_file_selected ||
+       session->iso_file_index >= session->credential->num_files)
+        return false;
+    const DfcFile* file = &session->credential->files[session->iso_file_index];
+    return (file->type == DFC_FILE_TYPE_STANDARD_DATA ||
+            file->type == DFC_FILE_TYPE_BACKUP_DATA) &&
+           dfc_file_sdm_flag_is_set(file, DfcSdmFlagEnabled);
+}
+#endif
+
 DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_exchange(
     DfcVirtualPiccSession* session,
     const uint8_t* command,
@@ -1992,6 +2024,9 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_exchange(
     size_t response_capacity,
     size_t* response_len) {
     dfc_random_operation_begin();
+#if DFC_ENABLE_SDM
+    bool consumed_sdm_read = standard_iso_command_consumes_sdm_read(session, command, command_len);
+#endif
     DfcVirtualPiccStatus status = virtual_picc_iso_dep_exchange(
         session, command, command_len, response, response_capacity, response_len, true);
     if(dfc_random_failure_is_retryable()) {
@@ -2000,6 +2035,10 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_exchange(
         *response_len = 0;
         return DfcVirtualPiccStatusProtocolError;
     }
+#if DFC_ENABLE_SDM
+    finalize_standard_iso_sdm_boundary(
+        session, command, command_len, consumed_sdm_read, status, response, *response_len);
+#endif
     return status;
 }
 
@@ -2154,6 +2193,9 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_frame_exchange(
         if(!tx) return DfcVirtualPiccStatusProtocolError;
         memcpy(retry_response_before, tx->data, sizeof(retry_response_before));
         size_t apdu_response_len = 0;
+#if DFC_ENABLE_SDM
+        bool consumed_sdm_read = standard_iso_command_consumes_sdm_read(session, inf, inf_len);
+#endif
         DfcVirtualPiccStatus status = virtual_picc_iso_dep_exchange(
             session, inf, inf_len, tx->data, sizeof(tx->data), &apdu_response_len, false);
         if(dfc_random_failure_is_retryable()) {
@@ -2161,6 +2203,10 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_frame_exchange(
             truncate_pending_command(session, pending_command_len_before);
             return DfcVirtualPiccStatusProtocolError;
         }
+#if DFC_ENABLE_SDM
+        finalize_standard_iso_sdm_boundary(
+            session, inf, inf_len, consumed_sdm_read, status, tx->data, apdu_response_len);
+#endif
         if(status != DfcVirtualPiccStatusOk) {
             if(session->pending_command_len > sizeof(session->pending_command) &&
                !session->emulator->command_chain)
