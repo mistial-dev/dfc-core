@@ -2717,7 +2717,8 @@ static MunitResult
     return MUNIT_OK;
 }
 
-static MunitResult test_direct_exchange_null_outputs(const MunitParameter params[], void* user_data) {
+static MunitResult
+    test_direct_exchange_null_outputs(const MunitParameter params[], void* user_data) {
     (void)params;
     (void)user_data;
     DfcCredential credential;
@@ -2725,24 +2726,107 @@ static MunitResult test_direct_exchange_null_outputs(const MunitParameter params
     DfcVirtualPiccSession* session = dfc_virtual_picc_session_alloc(&credential);
     munit_assert_not_null(session);
     DfcVirtualPiccActivation activation;
-    munit_assert_int(dfc_virtual_picc_scan_iso14443a(session, &activation), ==, DfcVirtualPiccStatusOk);
+    munit_assert_int(
+        dfc_virtual_picc_scan_iso14443a(session, &activation), ==, DfcVirtualPiccStatusOk);
     const uint8_t command[] = {0x00, 0xB0, 0x00, 0x00, 0x01};
     uint8_t response[64];
     size_t response_len = 0;
-    munit_assert_int(dfc_virtual_picc_iso_dep_exchange(session, command, sizeof(command),
-        response, sizeof(response), NULL), ==, DfcVirtualPiccStatusProtocolError);
-    munit_assert_int(dfc_virtual_picc_iso_dep_exchange(session, command, sizeof(command),
-        NULL, sizeof(response), &response_len), ==, DfcVirtualPiccStatusProtocolError);
-    munit_assert_int(dfc_virtual_picc_iso_dep_exchange(NULL, command, sizeof(command),
-        response, sizeof(response), &response_len), ==, DfcVirtualPiccStatusProtocolError);
-    munit_assert_int(dfc_virtual_picc_iso_dep_exchange(session, NULL, sizeof(command),
-        response, sizeof(response), &response_len), ==, DfcVirtualPiccStatusProtocolError);
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_exchange(
+            session, command, sizeof(command), response, sizeof(response), NULL),
+        ==,
+        DfcVirtualPiccStatusProtocolError);
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_exchange(
+            session, command, sizeof(command), NULL, sizeof(response), &response_len),
+        ==,
+        DfcVirtualPiccStatusProtocolError);
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_exchange(
+            NULL, command, sizeof(command), response, sizeof(response), &response_len),
+        ==,
+        DfcVirtualPiccStatusProtocolError);
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_exchange(
+            session, NULL, sizeof(command), response, sizeof(response), &response_len),
+        ==,
+        DfcVirtualPiccStatusProtocolError);
     dfc_virtual_picc_session_free(session);
     return MUNIT_OK;
 }
 
+static MunitResult
+    test_cid_frames_respect_reader_size(const MunitParameter params[], void* user_data) {
+    (void)params;
+    (void)user_data;
+    const size_t frame_sizes[] = {16, 24, 32, 40, 48, 64, 96, 128, 256};
+    for(unsigned fsdi = 0; fsdi < 9; fsdi++) {
+        // CID zero may also be explicitly present in a block header.
+        for(unsigned mode = 0; mode < 3; mode++) {
+            bool use_cid = mode != 0;
+            uint8_t cid = mode == 2 ? 1 : 0;
+            DfcCredential credential;
+            load_standard_credential(&credential);
+            DfcVirtualPiccSession* session = dfc_virtual_picc_session_alloc(&credential);
+            munit_assert_not_null(session);
+            DfcVirtualPiccActivation activation;
+            munit_assert_int(
+                dfc_virtual_picc_scan_iso14443a(session, &activation), ==, DfcVirtualPiccStatusOk);
+            uint8_t response[128];
+            size_t response_len = 0;
+            const uint8_t rats[] = {0xE0, (uint8_t)((fsdi << 4) | cid)};
+            munit_assert_int(
+                dfc_virtual_picc_iso_dep_frame_exchange(
+                    session, rats, sizeof(rats), response, sizeof(response), &response_len),
+                ==,
+                DfcVirtualPiccStatusOk);
+            session->pending_response_len = 58;
+            session->pending_response_prefix[0] = use_cid ? 0x0A : 0x02;
+            session->pending_response_prefix[1] = cid;
+            session->pending_response_prefix_len = use_cid ? 2 : 1;
+            session->last_picc_block[0] = 0x03;
+            session->last_picc_block_len = 1;
+            for(size_t i = 0; i < 58; i++)
+                session->emulator->tx_buffer->data[i] = (uint8_t)i;
+            session->emulator->tx_buffer->size_bytes = 58;
+            size_t received = 0;
+            while(received < 58) {
+                const uint8_t ack[] = {
+                    (uint8_t)(0xA0 | session->picc_sequence | (use_cid ? 8 : 0)), cid};
+                munit_assert_int(
+                    dfc_virtual_picc_iso_dep_frame_exchange(
+                        session, ack, use_cid ? 2 : 1, response, sizeof(response), &response_len),
+                    ==,
+                    DfcVirtualPiccStatusOk);
+                // The public API omits the two on-air CRC bytes.
+                munit_assert_size(response_len + 2, <=, frame_sizes[fsdi]);
+                size_t header = use_cid ? 2 : 1;
+                munit_assert_size(response_len, >, header);
+                munit_assert_size(response_len - header, <=, 48);
+                if(use_cid) munit_assert_uint8(response[1], ==, cid);
+                for(size_t i = header; i < response_len; i++)
+                    munit_assert_uint8(response[i], ==, received++);
+                munit_assert_true(((response[0] & 0x10) != 0) == (received < 58));
+            }
+            dfc_virtual_picc_session_free(session);
+        }
+    }
+    return MUNIT_OK;
+}
+
 static MunitTest tests[] = {
-    {"/direct-exchange-null-outputs", test_direct_exchange_null_outputs, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {"/cid-frames-respect-reader-size",
+     test_cid_frames_respect_reader_size,
+     NULL,
+     NULL,
+     MUNIT_TEST_OPTION_NONE,
+     NULL},
+    {"/direct-exchange-null-outputs",
+     test_direct_exchange_null_outputs,
+     NULL,
+     NULL,
+     MUNIT_TEST_OPTION_NONE,
+     NULL},
     {"/sdm-read-family-and-boundary-lifecycle",
      test_sdm_read_family_and_boundary_lifecycle,
      NULL,

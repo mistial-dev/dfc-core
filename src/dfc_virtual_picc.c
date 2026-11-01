@@ -1041,18 +1041,21 @@ static bool iso_dep_cid_matches(
 
 // Largest INF per response block for the reader frame size announced in RATS
 // (its FSDI nibble). A block is PCB + INF + two CRC bytes, so INF is the frame
-// size minus three, and the card never goes above its own limit. Measured on a
-// genuine EV3: RATS with FSDI 0 (16-byte frames) gives 13-byte pieces and
-// FSDI 8 (256-byte frames) gives 48.
+// size minus three before optional CID overhead and the card's own limit are
+// applied by iso_dep_chunk_limit. Without CID, measured EV3 responses use
+// 13-byte pieces at FSDI 0 and 48-byte pieces at FSDI 8.
 static uint8_t iso_dep_max_inf_for_fsdi(uint8_t fsdi) {
     static const uint16_t frame_size[] = {16, 24, 32, 40, 48, 64, 96, 128, 256};
     uint16_t frame = fsdi < sizeof(frame_size) / sizeof(frame_size[0]) ? frame_size[fsdi] : 256;
-    uint16_t inf = (uint16_t)(frame - 3);
-    return (uint8_t)(inf < DFC_ISO_DEP_MAX_INF ? inf : DFC_ISO_DEP_MAX_INF);
+    return (uint8_t)(frame - 3);
 }
 
 static size_t iso_dep_chunk_limit(const DfcVirtualPiccSession* session) {
-    return session->iso_dep_max_inf ? session->iso_dep_max_inf : DFC_ISO_DEP_MAX_INF;
+    if(!session->iso_dep_max_inf) return DFC_ISO_DEP_MAX_INF;
+    size_t limit = session->iso_dep_max_inf;
+    // RATS reserves PCB and CRC; a CID-bearing response needs one more byte.
+    if(session->pending_response_prefix_len > 1) limit--;
+    return limit < DFC_ISO_DEP_MAX_INF ? limit : DFC_ISO_DEP_MAX_INF;
 }
 
 /*

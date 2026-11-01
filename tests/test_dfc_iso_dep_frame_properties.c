@@ -130,9 +130,8 @@ typedef struct {
     size_t last_block_len;
     bool selected;
     Rng* rng;
-    // The largest INF the card may put in one block, from the RATS frame size,
-    // worked out here independently of the emulator.
-    size_t max_inf;
+    // Full on-air frame size announced by the reader, including header and CRC.
+    size_t frame_size;
     // How many new I-blocks the card has sent: lets a chain be read back in full.
     unsigned i_blocks_seen;
     // Complete multi-block answers read back and checked byte for byte.
@@ -151,7 +150,7 @@ static void activate(Fixture* fixture) {
     unsigned fsdi = next_random(fixture->rng) % 12;
     unsigned frame_size = fsdi < sizeof(frame_sizes) / sizeof(frame_sizes[0]) ? frame_sizes[fsdi] :
                                                                                 256;
-    fixture->max_inf = frame_size - 3 < 48 ? frame_size - 3 : 48;
+    fixture->frame_size = frame_size;
     const uint8_t rats[] = {DFC_ISO_DEP_RATS, (uint8_t)(fsdi << 4)};
     uint8_t response[64];
     size_t response_len = 0;
@@ -239,8 +238,11 @@ static void check_block_number(
         size_t prefix = 1 + ((response[0] & DFC_ISO_DEP_CID) ? 1 : 0);
         munit_assert_size(response_len, >=, prefix);
         size_t inf_len = response_len - prefix;
-        munit_assert_size(inf_len, <=, fixture->max_inf);
-        if(response[0] & DFC_ISO_DEP_MORE) munit_assert_size(inf_len, ==, fixture->max_inf);
+        munit_assert_size(response_len + 2, <=, fixture->frame_size);
+        size_t max_inf = fixture->frame_size - prefix - 2;
+        if(max_inf > 48) max_inf = 48;
+        munit_assert_size(inf_len, <=, max_inf);
+        if(response[0] & DFC_ISO_DEP_MORE) munit_assert_size(inf_len, ==, max_inf);
     }
     if(kind == 0x00) {
         munit_assert_uint8(reply_bn, ==, fixture->card_bn);
