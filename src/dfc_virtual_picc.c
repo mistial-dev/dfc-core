@@ -1107,8 +1107,6 @@ static DfcFile* find_iso_file_by_short_id(DfcVirtualPiccSession* session, uint8_
         DfcFile* file = &session->credential->files[i];
         if(file->app_index == session->emulator->selected_app_index && file->has_iso_file_id &&
            (file->iso_file_id & 0x1F) == short_id) {
-            session->iso_file_selected = true;
-            session->iso_file_index = i;
             return file;
         }
     }

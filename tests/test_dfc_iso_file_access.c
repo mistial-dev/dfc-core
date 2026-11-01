@@ -375,7 +375,7 @@ static MunitResult test_iso_append_record(const MunitParameter params[], void* u
         0xB3};
     exchange(session, append_sfi, sizeof(append_sfi), response, sizeof(response), &response_len);
     munit_assert_memory_equal(2, response, ((uint8_t[]){0x90, 0x00}));
-    munit_assert_true(session->iso_file_selected);
+    munit_assert_false(session->iso_file_selected);
     munit_assert_uint32(file->state.record.count, ==, 2);
     munit_assert_memory_equal(
         3, dfc_file_data(&credential, file) + 3, ((uint8_t[]){0xB1, 0xB2, 0xB3}));
@@ -387,6 +387,8 @@ static MunitResult test_iso_append_record(const MunitParameter params[], void* u
     exchange(session, bad_p2, sizeof(bad_p2), response, sizeof(response), &response_len);
     munit_assert_memory_equal(2, response, ((uint8_t[]){0x6A, 0x86}));
 
+    session->iso_file_selected = true;
+    session->iso_file_index = 0;
     const uint8_t append_full[] = {0, DFC_ISO7816_INS_APPEND_RECORD, 0, 0, 3, 1, 2, 3};
     exchange(session, append_full, sizeof(append_full), response, sizeof(response), &response_len);
     munit_assert_memory_equal(2, response, ((uint8_t[]){0x90, 0x00}));
@@ -396,6 +398,105 @@ static MunitResult test_iso_append_record(const MunitParameter params[], void* u
     authenticate_ev2_as(session, 0);
     exchange(session, append_full, sizeof(append_full), response, sizeof(response), &response_len);
     assert_security_status(response, response_len);
+    dfc_virtual_picc_session_free(session);
+    return MUNIT_OK;
+}
+
+static MunitResult test_iso_append_record_sfi_preserves_current_ef(
+    const MunitParameter params[],
+    void* user_data) {
+    (void)params;
+    (void)user_data;
+    uint8_t response[8];
+    size_t response_len = 0;
+    DfcCredential credential;
+    DfcVirtualPiccSession* session = prepare_session(&credential, DFC_FILE_TYPE_LINEAR_RECORD);
+    DfcFile* target = &credential.files[0];
+    target->access_rights = ACCESS_FREE;
+    target->state.record.size = 3;
+    target->state.record.max_records = 4;
+    target->state.record.count = 0;
+    munit_assert_true(dfc_file_resize(&credential, target, 12));
+    session->emulator->selected_application = DfcEmulatorSelectedApplicationApp;
+    session->emulator->selected_app_index = target->app_index;
+
+    DfcFile* current = dfc_credential_create_file(&credential, target->app_index, 0x0E);
+    munit_assert_not_null(current);
+    current->type = DFC_FILE_TYPE_STANDARD_DATA;
+    current->has_iso_file_id = true;
+    current->iso_file_id = 0x1002;
+    current->access_rights = ACCESS_FREE;
+    current->comm_settings = DFC_COMM_PLAIN;
+    munit_assert_true(dfc_file_resize(&credential, current, 8));
+    size_t current_index = (size_t)(current - credential.files);
+    session->iso_file_selected = true;
+    session->iso_file_index = current_index;
+
+    uint8_t append_sfi[] = {
+        0,
+        DFC_ISO7816_INS_APPEND_RECORD,
+        0,
+        (uint8_t)((target->iso_file_id & 0x1F) << 3),
+        3,
+        0x11,
+        0x22,
+        0x33,
+    };
+    exchange(session, append_sfi, sizeof(append_sfi), response, sizeof(response), &response_len);
+    munit_assert_memory_equal(2, response, ((uint8_t[]){0x90, 0x00}));
+    munit_assert_true(session->iso_file_selected);
+    munit_assert_size(session->iso_file_index, ==, current_index);
+    munit_assert_uint32(target->state.record.count, ==, 1);
+
+    append_sfi[4] = 4;
+    exchange(session, append_sfi, sizeof(append_sfi), response, sizeof(response), &response_len);
+    munit_assert_memory_equal(2, response, ((uint8_t[]){0x67, 0x00}));
+    munit_assert_size(session->iso_file_index, ==, current_index);
+    append_sfi[4] = 3;
+
+    const uint8_t oversized[] = {
+        0,
+        DFC_ISO7816_INS_APPEND_RECORD,
+        0,
+        (uint8_t)((target->iso_file_id & 0x1F) << 3),
+        4,
+        1,
+        2,
+        3,
+        4,
+    };
+    exchange(session, oversized, sizeof(oversized), response, sizeof(response), &response_len);
+    assert_conditions_not_satisfied(response, response_len);
+    munit_assert_size(session->iso_file_index, ==, current_index);
+
+    uint16_t saved_access = target->access_rights;
+    target->access_rights = 0xFFFF;
+    exchange(session, append_sfi, sizeof(append_sfi), response, sizeof(response), &response_len);
+    assert_security_status(response, response_len);
+    munit_assert_size(session->iso_file_index, ==, current_index);
+    target->access_rights = saved_access;
+
+    uint8_t saved_type = target->type;
+    target->type = DFC_FILE_TYPE_STANDARD_DATA;
+    exchange(session, append_sfi, sizeof(append_sfi), response, sizeof(response), &response_len);
+    assert_conditions_not_satisfied(response, response_len);
+    munit_assert_size(session->iso_file_index, ==, current_index);
+    target->type = saved_type;
+
+    response_len = SIZE_MAX;
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_exchange(
+            session, append_sfi, sizeof(append_sfi), response, 1, &response_len),
+        ==,
+        DfcVirtualPiccStatusBufferTooSmall);
+    munit_assert_size(response_len, ==, 0);
+    munit_assert_size(session->iso_file_index, ==, current_index);
+    munit_assert_uint32(target->state.record.count, ==, 1);
+    exchange(session, append_sfi, sizeof(append_sfi), response, sizeof(response), &response_len);
+    munit_assert_memory_equal(2, response, ((uint8_t[]){0x90, 0x00}));
+    munit_assert_size(session->iso_file_index, ==, current_index);
+    munit_assert_uint32(target->state.record.count, ==, 2);
+
     dfc_virtual_picc_session_free(session);
     return MUNIT_OK;
 }
@@ -889,6 +990,12 @@ static MunitTest tests[] = {
      MUNIT_TEST_OPTION_NONE,
      NULL},
     {"/append-record", test_iso_append_record, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {"/append-record-sfi-preserves-current-ef",
+     test_iso_append_record_sfi_preserves_current_ef,
+     NULL,
+     NULL,
+     MUNIT_TEST_OPTION_NONE,
+     NULL},
     {"/append-record-transaction-cyclic",
      test_iso_append_record_transaction_and_cyclic,
      NULL,
