@@ -357,12 +357,19 @@ bool dfc_emulator_command_read_data(
     size_t apdu_len,
     DfcByteBuf* tx_buffer,
     Dfc* dfc) {
-    DFC_UNUSED(apdu_len);
+    // ReadData takes exactly file number, 3-byte offset and 3-byte length. On a
+    // plain session any other length is a length error (measured). A secure
+    // session appends a MAC after the parameters, so its checks happen later.
+    if(apdu_len != 8 && !dfc_emulator_command_secure_session_open(emulator)) {
+        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_LENGTH_ERROR);
+        return true;
+    }
     uint8_t file_no = apdu[1];
     DfcFile* file = dfc_credential_find_file_in_app(
         emulator->credential, emulator->selected_app_index, file_no);
     if(!file) {
-        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_FILE_NOT_FOUND);
+        dfc_bytebuf_append_byte(
+            tx_buffer, dfc_emulator_file_lookup_failure_status(file_no, false));
         return true;
     }
     if(file->type != DFC_FILE_TYPE_STANDARD_DATA && file->type != DFC_FILE_TYPE_BACKUP_DATA &&
@@ -553,7 +560,14 @@ void dfc_emulator_command_write_data(
     DfcFile* file = dfc_credential_find_file_in_app(
         emulator->credential, emulator->selected_app_index, file_no);
     if(!file) {
-        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_FILE_NOT_FOUND);
+        dfc_bytebuf_append_byte(
+            tx_buffer, dfc_emulator_file_lookup_failure_status(file_no, false));
+        return;
+    }
+    if(file->type != DFC_FILE_TYPE_STANDARD_DATA && file->type != DFC_FILE_TYPE_BACKUP_DATA) {
+        // WriteData cannot reinterpret a value or record file as an octet
+        // stream (measured: permission denied, nothing written).
+        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_PERMISSION_DENIED);
         return;
     }
     if(!dfc_emulator_command_file_allows_write(file, emulator)) {
@@ -573,6 +587,11 @@ void dfc_emulator_command_write_data(
     uint32_t declared_len = read_uint24_le(apdu + 5);
     if(offset > file->data_len || (size_t)offset + (size_t)declared_len > file->data_len) {
         dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_BOUNDARY_ERROR);
+        return;
+    }
+    if(declared_len == 0) {
+        // Measured: a WriteData of zero bytes is a parameter error.
+        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_PARAMETER_ERROR);
         return;
     }
 

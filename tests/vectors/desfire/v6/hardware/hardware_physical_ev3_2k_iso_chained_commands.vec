@@ -6,7 +6,7 @@ case-id: hardware-physical-ev3-2k-iso-chained-commands
 origin: physical-card
 feature-version: 6
 source: physical-card-pcsc
-requires: ev3,auth-aes,record-files
+requires: record-files
 uid: 04304C4A281F90
 picc-generation: EV3
 picc-storage: 2048

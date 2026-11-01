@@ -1,0 +1,57 @@
+# Provisional capture batches
+
+A capture batch is a set of physical-card vectors taken in one sitting from one
+card that has not yet been proven healthy. Every vector in a batch carries two
+headers:
+
+```
+capture-batch: <batch-id>
+capture-status: provisional
+```
+
+If the card turns out to be faulty, the whole batch is thrown away: delete the
+files listed below, and anything in the emulator that was changed *only* because
+of them (listed under "What it changed") is put back or re-measured.
+
+The append-only gate (`scripts/check-physical-vectors-append-only.py`) lets a
+provisional capture be **deleted**. It still rejects editing or renaming one, and a
+genuine capture cannot be turned provisional afterwards (adding the header is an
+edit). `tests/check_desfire_vectors.py` requires a provisional vector to be
+`origin: physical-card` and to name its batch.
+
+To list a batch:
+
+```
+grep -l 'capture-batch: iso-write-2026-11-01' tests/vectors/desfire/v*/*/*.vec
+```
+
+## iso-write-2026-11-01
+
+- **Card:** the second genuine DESFire EV3 2K used for the other
+  `hardware_physical_ev3_2k_*` captures (random UID; application `123456`, linear
+  record file 3 with ISO id `1003`, free access, four 4-byte records). The card has
+  no free memory, so only files already on it could be used.
+- **Taken with:** Proxmark3, raw ISO-DEP frames in one session per section. Each
+  section begins by emptying file 3 (ClearRecordFile, CommitTransaction) so sections
+  replay independently.
+- **File:** `tests/vectors/desfire/v6/hardware/hardware_physical_ev3_2k_iso_write_transaction.vec`
+- **What it shows:**
+  - A native WriteRecord waiting for CommitTransaction survives other successful
+    commands: native commands, ISO SELECT, a successful ISO READ RECORD.
+  - Any failing command discards it: a native error, or an ISO READ RECORD that
+    answers 6985. CommitTransaction then answers `0C`.
+  - A successful ISO APPEND RECORD writes its own record at once and does **not**
+    publish the staged write. The staged write is discarded.
+  - While a transaction is open, GetFileSettings reports the committed record count.
+- **What it changed in the emulator** (undo these if the batch is retired):
+  - `src/dfc_virtual_picc.c`: ISO APPEND RECORD discards the open transaction before
+    appending (was: published it); an ISO READ RECORD that fails discards the open
+    transaction (`abort_transaction_after_failed_iso_read_record`).
+  - `src/dfc_emulator_commands_lifecycle.c`: GetFileSettings reports the committed
+    record count of a record file while a transaction is open.
+  - `tests/test_dfc_iso_file_access.c`: `append-record-transaction-and-cyclic` and
+    `iso-read-record-counts-only-committed-records` follow the vector.
+- **Not covered by this batch:** ISO UPDATE BINARY and READ BINARY (the card's only
+  data file was not writable without authentication), failing ISO commands other than
+  READ RECORD, and a pending UpdateRecord or ClearRecordFile followed by an ISO append.
+  Those keep their earlier, unmeasured behaviour.

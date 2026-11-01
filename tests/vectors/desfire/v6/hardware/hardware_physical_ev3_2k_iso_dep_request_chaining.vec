@@ -6,7 +6,7 @@ case-id: hardware-physical-ev3-2k-iso-dep-request-chaining
 origin: physical-card
 feature-version: 6
 source: physical-card-proxmark3
-requires: ev3,record-files
+requires: record-files
 uid: 04304C4A281F90
 picc-generation: EV3
 picc-storage: 2048

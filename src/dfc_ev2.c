@@ -28,12 +28,12 @@ static bool command_file_access(uint8_t command, DfcFileAccess* access) {
         return true;
     case DFC_CMD_WRITE_DATA:
     case DFC_CMD_WRITE_RECORD:
-    case DFC_CMD_CREDIT:
     case DFC_CMD_DEBIT:
     case DFC_CMD_LIMITED_CREDIT:
         *access = DfcFileAccessWrite;
         return true;
     case DFC_CMD_UPDATE_RECORD:
+    case DFC_CMD_CREDIT: // not measured; see dfc_emulator_command_value_delta
         *access = DfcFileAccessReadWrite;
         return true;
     case DFC_CMD_CHANGE_FILE_SETTINGS:

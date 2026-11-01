@@ -4,7 +4,7 @@ case-id: iso-dep-alternate-protocol-retry-reset
 origin: synthetic
 feature-version: 6
 source: generated alternate ISO-DEP transport regression
-requires: ev3,record-files
+requires: record-files
 uid: 04112233445566
 picc-generation: EV3
 picc-storage: 4096
@@ -18,18 +18,20 @@ exchange native-apdu 905A0000034F49D300 => 9100
 exchange native CD0114E100E0EE100000 => 00
 exchange native C10300EEEE080000030000 => 00
 
-# Fragment an alternate WriteData APDU. A repeated first I-block has the old
-# sequence number, is acknowledged with the next expected block number, and
-# leaves the partial APDU available for the correctly numbered final block.
+# Fragment an alternate WriteData APDU. The card never checks the reader's block
+# number, so a repeated first I-block is a new fragment: the APDU is longer than
+# its Lc, the final block ends in a native length error, and nothing is written
+# (measured on genuine EV3 silicon).
 frame-exchange E080 => 0565810280
 frame-exchange 12908D00000B010000 => A2
 frame-exchange 12908D00000B010000 => A3
-frame-exchange 0300040000DEADBEEF00 => 029100
-assert files[0].data = DEADBEEF000000000000000000000000
+frame-exchange 0300040000DEADBEEF00 => 02917E
+assert files[0].data = 00000000000000000000000000000000
 
 # Field loss retires an unfinished alternate WriteRecord request. After a new
 # activation the record file is still untouched and accepts a normal command.
-frame-exchange 12908B00000F030000 => A2
+# The duplicate above advanced the card's block number past the reader's.
+frame-exchange 12908B00000F030000 => A3
 field-off
 assert files[1].data = 000000000000000000000000000000000000000000000000
 scan

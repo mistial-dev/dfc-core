@@ -7,10 +7,26 @@ on:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Never cancel a run on master: a later push would otherwise skip the
+  # provenance check of the earlier one. Pull requests are checked cumulatively,
+  # so cancelling superseded PR runs is safe.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Run both crypto backends, plain and under sanitizers.
 jobs:
+  vector-provenance:
+    name: Physical-card vectors stay untouched
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Reject edits to genuine captures in a pull request
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/check-physical-vectors-append-only.py "origin/${{ github.base_ref }}"
+      - name: Reject edits to genuine captures in a push
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: python3 scripts/check-physical-vectors-append-only.py "${{ github.event.before }}"
   format-docs:
     name: Formatting and documentation
     runs-on: ubuntu-24.04
@@ -37,6 +53,14 @@ jobs:
         run: python3 tests/check_desfire_vectors.py
       - name: Test DESFire vector grammar
         run: python3 tests/test_check_desfire_vectors.py
+      - name: Check ISO-DEP block numbers in every vector
+        run: python3 tests/check_iso_dep_block_numbers.py
+      - name: Test the block-number checker
+        run: python3 tests/test_check_iso_dep_block_numbers.py
+      - name: Test the staging and ownership lint
+        run: python3 tests/test_check_virtual_picc_staging.py
+      - name: Test the physical-vector append-only gate
+        run: python3 tests/test_check_physical_vectors.py
       - name: Test stack-usage checker
         run: python3 tests/test_check_stack_usage.py
       - name: Test CI unit workflow policy

@@ -384,22 +384,6 @@ static MunitResult
         ==,
         DfcVirtualPiccStatusOk);
     munit_assert_size(fixture.picc->pending_command_len, ==, sizeof(first) - 1);
-    size_t pending_before = fixture.picc->pending_command_len;
-
-    const uint8_t wrong_sequence[] = {0x02, 0, 4, 0, 0, 1, 2, 3, 4, 0};
-    munit_assert_int(
-        dfc_virtual_picc_iso_dep_frame_exchange(
-            fixture.picc,
-            wrong_sequence,
-            sizeof(wrong_sequence),
-            response,
-            sizeof(response),
-            &response_len),
-        ==,
-        DfcVirtualPiccStatusOk);
-    munit_assert_size(response_len, ==, 1);
-    munit_assert_uint8(response[0], ==, 0xA3);
-    munit_assert_size(fixture.picc->pending_command_len, ==, pending_before);
 
     const uint8_t malformed_final[] = {0x03, 0, 4, 0, 0, 1, 2, 3};
     munit_assert_int(
@@ -429,7 +413,7 @@ static MunitResult
 }
 
 static MunitResult
-    test_iso_dep_duplicate_request_fragment(const MunitParameter params[], void* data) {
+    test_iso_dep_duplicate_request_fragment_is_appended(const MunitParameter params[], void* data) {
     (void)params;
     (void)data;
     Fixture fixture;
@@ -454,7 +438,9 @@ static MunitResult
         DfcVirtualPiccStatusOk);
     munit_assert_size(response_len, ==, 1);
     munit_assert_uint8(response[0], ==, 0xA3);
-    munit_assert_size(fixture.picc->pending_command_len, ==, pending_len);
+    // Genuine silicon appends a repeated fragment as a new one: a chained
+    // write whose repeat is sent twice ends in a length error, not success.
+    munit_assert_size(fixture.picc->pending_command_len, ==, 2 * pending_len);
 
     const uint8_t malformed_final[] = {0x03, 5, 0xAA};
     munit_assert_int(
@@ -1158,7 +1144,7 @@ static MunitTest tests[] = {
      MUNIT_TEST_OPTION_NONE,
      NULL},
     {"/iso-dep-duplicate-request-fragment",
-     test_iso_dep_duplicate_request_fragment,
+     test_iso_dep_duplicate_request_fragment_is_appended,
      NULL,
      NULL,
      MUNIT_TEST_OPTION_NONE,

@@ -34,6 +34,13 @@
       ]
     },
     {
+      "id": "iso-dep-card-block-number-toggle",
+      "evidence": [
+        "hardware/hardware_physical_ev3_2k_iso_dep_request_chaining.vec",
+        "synthetic/iso-dep-card-block-number-toggle.vec"
+      ]
+    },
+    {
       "id": "iso7816-append-record",
       "evidence": [
         "hardware/hardware_physical_ev3_2k_iso_chained_commands.vec",
@@ -218,6 +225,30 @@
         "synthetic/transaction-snapshot-create-rebases.vec",
         "synthetic/transaction-snapshot-delete-commit.vec",
         "synthetic/transaction-snapshot-delete-rebases.vec"
+      ]
+    },
+    {
+      "id": "iso-dep-block-numbering-and-framing",
+      "evidence": [
+        "hardware/hardware_physical_ev3_2k_iso_dep_block_numbering.vec"
+      ]
+    },
+    {
+      "id": "iso7816-file-access-negative-statuses",
+      "evidence": [
+        "hardware/hardware_physical_ev3_2k_iso_file_negatives.vec"
+      ]
+    },
+    {
+      "id": "native-bad-command-and-parameter-statuses",
+      "evidence": [
+        "hardware/hardware_physical_ev3_2k_bad_commands.vec"
+      ]
+    },
+    {
+      "id": "authenticated-file-rights-enforcement",
+      "evidence": [
+        "hardware/hardware_physical_ev3_2k_authenticated_rights.vec"
       ]
     }
   ]

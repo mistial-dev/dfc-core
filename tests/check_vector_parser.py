@@ -87,10 +87,10 @@ def main() -> int:
         run(
             runner,
             directory,
-            "duplicate-fragment-ack",
+            "ignored-s-block",
             "frame-exchange E080 => 0565810280\n"
             "frame-exchange 1200A4 => A2\n"
-            "frame-exchange 1200A4 => A3\n"
+            "expect-error protocol-error frame-exchange F201\n"
             "frame-exchange 13040007D276 => A3\n"
             "frame-exchange 020000850100 => 029000",
             succeeds=True,

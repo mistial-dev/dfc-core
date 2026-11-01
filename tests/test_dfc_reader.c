@@ -2330,13 +2330,14 @@ static MunitResult
             munit_assert_memory_equal(
                 response_len,
                 response,
-                ((uint8_t[]){DFC_ISO7816_SW_WRONG_PARAMETERS_HI,
-                             DFC_ISO7816_SW_WRONG_PARAMETERS_LO}));
+                ((uint8_t[]){
+                    DFC_ISO7816_SW_CONDITIONS_NOT_SATISFIED_HI,
+                    DFC_ISO7816_SW_CONDITIONS_NOT_SATISFIED_LO}));
         }
     }
 
-    // The end offset is valid and returns an empty body. A successful SDM read
-    // still renders the file and commits its read counter.
+    // Measured on a genuine EV3: an offset equal to the file size is refused
+    // with 6985, so it renders nothing and consumes no read count.
     response_len = 0;
     munit_assert_int(
         dfc_virtual_picc_iso_dep_exchange(
@@ -2350,9 +2351,13 @@ static MunitResult
         DfcVirtualPiccStatusOk);
     munit_assert_size(response_len, ==, DFC_ISO7816_STATUS_WORD_LENGTH);
     munit_assert_memory_equal(
-        response_len, response, ((uint8_t[]){DFC_ISO7816_SW_OK_HI, DFC_ISO7816_SW_OK_LO}));
-    munit_assert_uint32(file->state.data.sdm_read_counter, ==, counter_before + 1);
-    munit_assert_true(link.picc->emulator->sdm_read_cache_valid);
+        response_len,
+        response,
+        ((uint8_t[]){
+            DFC_ISO7816_SW_CONDITIONS_NOT_SATISFIED_HI,
+            DFC_ISO7816_SW_CONDITIONS_NOT_SATISFIED_LO}));
+    munit_assert_uint32(file->state.data.sdm_read_counter, ==, counter_before);
+    munit_assert_int(link.picc->emulator->sdm_read_cache_valid, ==, cache_valid_before);
 
     // Free read access keeps this ISO response plain, so its length is the
     // requested body plus the status word, without a secure-messaging MAC.
@@ -4037,6 +4042,72 @@ static MunitResult test_ev2_change_key_settings(const MunitParameter params[], v
     return MUNIT_OK;
 }
 
+// EV2 ChangeKey must apply the same per-key rules as native ChangeKey. Key 0
+// (the application master key) can only be changed by a session authenticated as
+// key 0 and only while the master-key-changeable bit is set. Before this was
+// enforced, the EV2 path skipped that rule: with the bit cleared the master could
+// still change key 0, and a key named in the change-key field could change key 0
+// when it knew the old value. In both cases the key must stay as it was.
+static MunitResult
+    test_ev2_change_key_applies_the_per_key_rules(const MunitParameter params[], void* data) {
+    (void)params;
+    (void)data;
+    static Link link;
+    const uint8_t new_key[16] = {
+        0x70,
+        0x71,
+        0x72,
+        0x73,
+        0x74,
+        0x75,
+        0x76,
+        0x77,
+        0x78,
+        0x79,
+        0x7A,
+        0x7B,
+        0x7C,
+        0x7D,
+        0x7E,
+        0x7F};
+    DfcCommand command;
+    DfcReaderExchange ex;
+
+    // Case 1: the master-key-changeable bit is clear, so not even key 0 may do it.
+    link_open(&link, DfcGenerationEv2, DfcReaderFramingIso7816);
+    DfcApplication* app = dfc_credential_get_application(&link.credential, 0);
+    app->key_settings_1 = 0x0A;
+    select_app(&link, AID_AES);
+    munit_assert_int(authenticate_ev2(&link, true, 0, AES_KEY_0), ==, DfcReaderOk);
+    munit_assert_int(
+        dfc_reader_change_key_ev2_command(&link.session, 0, 0, new_key, NULL, 0x33, &command),
+        ==,
+        DfcReaderOk);
+    (void)link_send(&link, &command, DFC_COMM_PLAIN, &ex);
+    munit_assert_uint8(dfc_reader_result_status(&ex), ==, 0x9D);
+    munit_assert_memory_equal(
+        sizeof(AES_KEY_0), dfc_credential_key_const(&link.credential, app, 0), AES_KEY_0);
+    link_close(&link);
+
+    // Case 2: key 1 is allowed to change keys (change-key field 1) and knows the
+    // old value of key 0, but key 0 is only ever changed by key 0.
+    link_open(&link, DfcGenerationEv2, DfcReaderFramingIso7816);
+    app = dfc_credential_get_application(&link.credential, 0);
+    app->key_settings_1 = 0x1F;
+    select_app(&link, AID_AES);
+    munit_assert_int(authenticate_ev2(&link, true, 1, AES_KEY_1), ==, DfcReaderOk);
+    munit_assert_int(
+        dfc_reader_change_key_ev2_command(&link.session, 0, 0, new_key, AES_KEY_0, 0x33, &command),
+        ==,
+        DfcReaderOk);
+    (void)link_send(&link, &command, DFC_COMM_PLAIN, &ex);
+    munit_assert_uint8(dfc_reader_result_status(&ex), ==, 0x9D);
+    munit_assert_memory_equal(
+        sizeof(AES_KEY_0), dfc_credential_key_const(&link.credential, app, 0), AES_KEY_0);
+    link_close(&link);
+    return MUNIT_OK;
+}
+
 static MunitResult test_ev2_change_key(const MunitParameter params[], void* data) {
     (void)params;
     (void)data;
@@ -4627,6 +4698,12 @@ static MunitTest tests[] = {
      MUNIT_TEST_OPTION_NONE,
      NULL},
     {"/ev2-change-key", test_ev2_change_key, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {"/ev2-change-key-applies-the-per-key-rules",
+     test_ev2_change_key_applies_the_per_key_rules,
+     NULL,
+     NULL,
+     MUNIT_TEST_OPTION_NONE,
+     NULL},
 #endif
     {"/commit-reader-id-requires-mac",
      test_commit_reader_id_requires_mac_mode,

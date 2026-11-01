@@ -67,6 +67,10 @@ uint8_t dfc_emulator_file_effective_comm_settings(
     const DfcFile* file,
     DfcFileAccess access,
     uint8_t configured_comm) {
+    // The stored byte also carries the SDM flag (0x40). Only its mode bits say how
+    // the file is protected; comparing the whole byte would let the flag turn
+    // enciphered or MACed into something else and downgrade the protection.
+    configured_comm &= DFC_COMM_MODE_MASK;
     bool authenticated = dfc_emulator_native_authentication_active(emulator)
 #if DFC_ENABLE_EV2_SECURE_MESSAGING
                          || emulator->ev2_session_active

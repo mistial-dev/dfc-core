@@ -146,3 +146,6 @@ valid only after `scan` and before `field-off`.
 records the complete proprietary APDU and a response ending in `91xx`.
 `iso-apdu` records a complete standard ISO command and its ISO status word.
 Frame boundaries and response chaining are part of the expected evidence.
+
+See also [Measured card behavior](measured-card-behavior.md) for the rules the
+physical-card vectors establish and how a new capture is added.

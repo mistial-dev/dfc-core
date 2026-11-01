@@ -197,7 +197,8 @@ void dfc_emulator_command_get_value(
     DfcFile* file = dfc_credential_find_file_in_app(
         emulator->credential, emulator->selected_app_index, apdu[1]);
     if(!file) {
-        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_FILE_NOT_FOUND);
+        dfc_bytebuf_append_byte(
+            tx_buffer, dfc_emulator_file_lookup_failure_status(apdu[1], false));
         return;
     }
     if(file->type != 0x02) {
@@ -279,16 +280,33 @@ void dfc_emulator_command_value_delta(
     DfcFile* file = dfc_credential_find_file_in_app(
         emulator->credential, emulator->selected_app_index, apdu[1]);
     if(!file) {
-        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_FILE_NOT_FOUND);
+        dfc_bytebuf_append_byte(
+            tx_buffer, dfc_emulator_file_lookup_failure_status(apdu[1], false));
         return;
     }
     if(file->type != 0x02) {
         dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_PERMISSION_DENIED);
         return;
     }
-    if(!dfc_emulator_command_file_allows_write(file, emulator)) {
+    // Which right each value command needs. NOT MEASURED: no capture of a genuine
+    // card covers value-file rights (the card used had no room for a value file),
+    // so this follows the card's documented model: Credit needs Read&Write;
+    // Debit needs Read, Write or Read&Write; LimitedCredit needs Write or
+    // Read&Write (it exists so a reader without full Read&Write can add a
+    // bounded amount). Before this, all three were gated as plain Write, which let
+    // a Write-only key, or anyone on a free-Write file, Credit without limit.
+    const bool plain_credit = !debit && !limited_credit;
+    const bool allowed = plain_credit ?
+                             dfc_emulator_command_file_allows_read_write(file, emulator) :
+                         debit ? (dfc_emulator_command_file_allows_write(file, emulator) ||
+                                  dfc_emulator_command_file_allows_read(file, emulator)) :
+                                 dfc_emulator_command_file_allows_write(file, emulator);
+    const DfcFileAccess delta_access = plain_credit ? DfcFileAccessReadWrite : DfcFileAccessWrite;
+    if(!allowed) {
         dfc_bytebuf_append_byte(
-            tx_buffer, dfc_emulator_command_file_access_refusal_status(file, true));
+            tx_buffer,
+            plain_credit ? dfc_emulator_command_file_read_write_refusal_status(file) :
+                           dfc_emulator_command_file_access_refusal_status(file, true));
         return;
     }
 
@@ -300,7 +318,7 @@ void dfc_emulator_command_value_delta(
     if(dfc_emulator_native_authentication_active(emulator) &&
        dfc_secure_messaging_applies_ev1(emulator->secure_messaging, cmd)) {
         uint8_t comm = dfc_emulator_file_effective_comm_settings(
-            emulator, file, DfcFileAccessWrite, file->comm_settings);
+            emulator, file, delta_access, file->comm_settings);
         if(comm == DFC_COMM_MAC && dfc_secure_messaging_ev1_transmits_command_mac(cmd)) {
             size_t clear_len = dfc_secure_messaging_verify_ev1_transmitted_command_mac(
                 emulator->secure_messaging, cmd, body, body_len);
@@ -355,7 +373,7 @@ void dfc_emulator_command_value_delta(
         !dfc_secure_messaging_applies_ev1(emulator->secure_messaging, cmd)) {
         // D40: Amount may be MAC/ENC under file comm mode.
         uint8_t comm = dfc_emulator_file_effective_comm_settings(
-            emulator, file, DfcFileAccessWrite, file->comm_settings);
+            emulator, file, delta_access, file->comm_settings);
         if(body_len < 1) {
             dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_LENGTH_ERROR);
             return;

@@ -201,11 +201,9 @@ bool dfc_emulator_command_file_allows_write(const DfcFile* file, const DfcEmulat
     return dfc_emulator_file_access_allowed(emulator, file, DfcFileAccessWrite);
 }
 
-#if DFC_ENABLE_RECORD_FILES
 bool dfc_emulator_command_file_allows_read_write(const DfcFile* file, const DfcEmulator* emulator) {
     return dfc_emulator_file_access_allowed(emulator, file, DfcFileAccessReadWrite);
 }
-#endif
 
 // Status for an operation the file's access rights refuse. Genuine silicon
 // separates two reasons, so this must too, and it consults exactly the nibbles
@@ -233,6 +231,18 @@ uint8_t dfc_emulator_command_file_access_refusal_status(const DfcFile* file, boo
         return DFC_STATUS_AUTHENTICATION_ERR;
     }
     return DFC_STATUS_PERMISSION_DENIED;
+}
+
+// Refusal status for an operation that depends on the read-and-write right
+// alone (ClearRecordFile, UpdateRecord). If that right is denied to everyone the
+// answer is permission denied, whatever the separate read or write rights say;
+// if some key could satisfy it, the reader is told to authenticate. Measured on a
+// genuine EV3: key 0 authenticated, read-and-write denied, write right key 0:
+// ClearRecordFile answers permission denied.
+uint8_t dfc_emulator_command_file_read_write_refusal_status(const DfcFile* file) {
+    return access_read_write_nibble(file->access_rights) < DFC_ACCESS_FREE ?
+               DFC_STATUS_AUTHENTICATION_ERR :
+               DFC_STATUS_PERMISSION_DENIED;
 }
 
 // True when every nibble that can authorize `write` is free (0xE) — no key-gated path.
@@ -963,7 +973,13 @@ static void
         emulator->credential, emulator->selected_app_index, apdu[1]);
     if(!file ||
        (file->type != DFC_FILE_TYPE_LINEAR_RECORD && file->type != DFC_FILE_TYPE_CYCLIC_RECORD)) {
-        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_FILE_NOT_FOUND);
+        dfc_bytebuf_append_byte(
+            tx_buffer, dfc_emulator_file_lookup_failure_status(apdu[1], file != NULL));
+        return;
+    }
+    if(!dfc_emulator_record_storage_is_consistent(file)) {
+        // The stored bytes do not cover the declared records: refuse, never index.
+        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_OUT_OF_EEPROM);
         return;
     }
     if(!dfc_emulator_command_file_allows_read(file, emulator)) {
@@ -1162,6 +1178,9 @@ static bool begin_or_reject_command_chain(
         return true;
     }
     if(buffer_len == expected) return false;
+    // The chain buffer may still hold borrowed ISO-DEP retry bytes. Retire them
+    // (wiped and freed) rather than overwrite the pointer and leak them.
+    if(emulator->command_chain) dfc_emulator_discard_command_chain(emulator);
     emulator->command_chain = dfc_platform_alloc(expected, DfcAllocCommandChain);
     if(!emulator->command_chain) {
         dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_OUT_OF_EEPROM);
@@ -1280,6 +1299,10 @@ static bool dispatch_native_command(
             return true;
         }
         size_t logical_len = emulator->command_chain_len;
+        // The handler can end the session on a failed integrity check, which frees
+        // the chain buffer under us. Take the command code first and re-check the
+        // pointer afterwards instead of reading the buffer again.
+        const uint8_t completed_cmd = emulator->command_chain[0];
         emulator->command_chain_active = false;
         emulator->command_chain_expected = SIZE_MAX;
         bool handled = dispatch_native_command(
@@ -1290,7 +1313,7 @@ static bool dispatch_native_command(
 #endif
         )
             dfc_emulator_command_apply_ev1_response_secure_messaging(
-                emulator, emulator->command_chain[0], tx_buffer);
+                emulator, completed_cmd, tx_buffer);
         dfc_emulator_discard_command_chain(emulator);
         return handled;
     }
@@ -1414,6 +1437,11 @@ bool dfc_emulator_handle_command(
     uint16_t transaction_mac_prior_command_counter = emulator->ev2_command_counter;
 #endif
 #endif
+    // A handler can end the session on a failed integrity check, and that frees
+    // the command-chain buffer `buffer` may point into (a long command with an
+    // alternate opcode is handed over in it). Take the command code first and
+    // never read `buffer` again after the dispatch.
+    const uint8_t command_byte = buffer_len > 0 ? buffer[0] : 0;
     if(!dispatch_native_command(emulator, buffer, buffer_len, tx_buffer, context)) {
 #if DFC_ENABLE_TRANSACTION_MAC
         dfc_secure_wipe(transaction_mac_prior_iv, sizeof(transaction_mac_prior_iv));
@@ -1441,7 +1469,7 @@ bool dfc_emulator_handle_command(
     if(dfc_random_failure_is_retryable()) return true;
 #if DFC_ENABLE_SDM
     if(buffer_len > 0 && dfc_bytebuf_get_size_bytes(tx_buffer) > 0) {
-        uint8_t command = buffer[0];
+        uint8_t command = command_byte;
         uint8_t status = dfc_bytebuf_get_data(tx_buffer)[0];
         bool accepted = status == DFC_STATUS_OK || status == DFC_CMD_ADDITIONAL_FRAME ||
                         status == DFC_STATUS_SPECIAL_SUCCESS;
@@ -1462,7 +1490,7 @@ bool dfc_emulator_handle_command(
             dfc_emulator_retire_sdm_read_cache(emulator);
     }
 #endif
-    dfc_emulator_command_apply_ev1_response_secure_messaging(emulator, buffer[0], tx_buffer);
+    dfc_emulator_command_apply_ev1_response_secure_messaging(emulator, command_byte, tx_buffer);
     finalize_native_command(
         emulator, preserve_transaction_on_failure, authentication_exchange, tx_buffer);
     return true;

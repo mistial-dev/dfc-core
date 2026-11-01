@@ -7,7 +7,7 @@ case-id: hardware-physical-ev3-2k-terminal-configuration
 origin: physical-card
 feature-version: 6
 source: physical-card-pcsc
-requires: ev3,auth-iso
+requires: auth-iso
 uid: 04304C4A281F90
 picc-generation: EV3
 picc-storage: 2048

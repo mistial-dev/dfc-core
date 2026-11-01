@@ -17,7 +17,13 @@ void dfc_emulator_command_write_record(
         emulator->credential, emulator->selected_app_index, apdu[1]);
     if(!file ||
        (file->type != DFC_FILE_TYPE_LINEAR_RECORD && file->type != DFC_FILE_TYPE_CYCLIC_RECORD)) {
-        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_FILE_NOT_FOUND);
+        dfc_bytebuf_append_byte(
+            tx_buffer, dfc_emulator_file_lookup_failure_status(apdu[1], file != NULL));
+        return;
+    }
+    if(!dfc_emulator_record_storage_is_consistent(file)) {
+        // The stored bytes do not cover the declared records: refuse, never index.
+        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_OUT_OF_EEPROM);
         return;
     }
     if(!dfc_emulator_command_file_allows_write(file, emulator)) {
@@ -164,12 +170,18 @@ void dfc_emulator_command_update_record(
         emulator->credential, emulator->selected_app_index, apdu[1]);
     if(!file ||
        (file->type != DFC_FILE_TYPE_LINEAR_RECORD && file->type != DFC_FILE_TYPE_CYCLIC_RECORD)) {
-        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_FILE_NOT_FOUND);
+        dfc_bytebuf_append_byte(
+            tx_buffer, dfc_emulator_file_lookup_failure_status(apdu[1], file != NULL));
+        return;
+    }
+    if(!dfc_emulator_record_storage_is_consistent(file)) {
+        // The stored bytes do not cover the declared records: refuse, never index.
+        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_OUT_OF_EEPROM);
         return;
     }
     if(!dfc_emulator_command_file_allows_read_write(file, emulator)) {
         dfc_bytebuf_append_byte(
-            tx_buffer, dfc_emulator_command_file_access_refusal_status(file, true));
+            tx_buffer, dfc_emulator_command_file_read_write_refusal_status(file));
         return;
     }
     uint32_t record_number = read_uint24_le(apdu + 2);
@@ -270,12 +282,18 @@ void dfc_emulator_command_clear_record_file(
         emulator->credential, emulator->selected_app_index, apdu[1]);
     if(!file ||
        (file->type != DFC_FILE_TYPE_LINEAR_RECORD && file->type != DFC_FILE_TYPE_CYCLIC_RECORD)) {
-        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_FILE_NOT_FOUND);
+        dfc_bytebuf_append_byte(
+            tx_buffer, dfc_emulator_file_lookup_failure_status(apdu[1], file != NULL));
+        return;
+    }
+    if(!dfc_emulator_record_storage_is_consistent(file)) {
+        // The stored bytes do not cover the declared records: refuse, never index.
+        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_OUT_OF_EEPROM);
         return;
     }
     if(!dfc_emulator_command_file_allows_read_write(file, emulator)) {
         dfc_bytebuf_append_byte(
-            tx_buffer, dfc_emulator_command_file_access_refusal_status(file, true));
+            tx_buffer, dfc_emulator_command_file_read_write_refusal_status(file));
         return;
     }
 #if DFC_ENABLE_TRANSACTION_MAC

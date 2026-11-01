@@ -4,7 +4,7 @@ case-id: iso-chained-family-transitions
 origin: synthetic
 feature-version: 6
 source: generated alternate command family regression
-requires: ev3,record-files
+requires: record-files
 uid: 04112233445566
 picc-generation: EV3
 picc-storage: 4096
