@@ -108,19 +108,57 @@ batch** (see `docs/capture-batches.md`; it can be retired as a unit).
   the staged native write; that write is discarded.
 - While a transaction is open GetFileSettings reports the committed record count.
 
+## Value-file rights
+
+Vector: `hardware_physical_ev3_2k_value_rights.vec`, a provisional batch
+(`docs/capture-batches.md`). One value file, every combination of free, denied, key 0 and
+key 1 for the Read, Write and Read&Write rights, each command tried unauthenticated and as
+key 0 and key 1.
+
+- GetValue and Debit work with any one of the Read, Write or Read&Write rights.
+- LimitedCredit works with the Write or Read&Write right; Read alone is denied.
+- Credit needs the Read&Write right; Read or Write alone is denied.
+- A command that no right can ever allow answers `9D`. One that a key could allow answers
+  `AE` until that key authenticates.
+
+## Which right sets the protection of a value command
+
+Vector: `hardware_physical_ev3_2k_value_comm_modes.vec` (same provisional batch). An
+enciphered value file, Debit and Credit sent plain and enciphered, by authorising right and
+session key.
+
+- Unauthenticated, a free right makes the command plain.
+- Authenticated, if the session key matches any right that can authorise the command, the
+  file's mode applies and the command must be enciphered; the plain form answers `7E`.
+- Authenticated, if the key matches none of them but one is free, the command is plain and
+  the enciphered form answers `7E`.
+- So the mode follows the right that authorised the command, not the Write right.
+- An enciphered payload that is not a whole number of cipher blocks, and a plain amount that
+  is not exactly four bytes, are length errors (`7E`), answered before any integrity check.
+
+## ISO UPDATE BINARY and READ BINARY against an open transaction
+
+Vector: `hardware_physical_ev3_2k_iso_update_binary_transaction.vec` (same provisional batch). A
+staged native WriteData on a backup file, or a staged Debit on a value file, with an ISO
+command in between.
+
+- A successful ISO UPDATE BINARY publishes the open transaction: the staged write and a
+  staged Debit are committed with it, and a later CommitTransaction or AbortTransaction
+  answers `0C`.
+- An ISO UPDATE BINARY aimed at a backup file is written at once.
+- A failing ISO UPDATE BINARY (offset past the end, `6985`) discards the open transaction.
+- A successful ISO READ BINARY leaves the staged write alone; CommitTransaction publishes it.
+- ISO APPEND RECORD is different: it discards the staged write (see above).
+
 ## Rules that are not measured
 
 These follow how DESFire access rights are meant to work, not a capture, and the
 code and tests say so. A capture that disagrees replaces them.
 
-- **Value commands need different rights.** Credit needs the Read&Write right.
-  Debit takes Read, Write or Read&Write. LimitedCredit takes Write or Read&Write.
-  The captured card had no room for a value file, so no vector covers this. The
-  rule exists because gating all three as plain Write let a Write-only key, or
-  anyone on a file whose Write right is free, add value without limit.
 - **File creation refuses access rights that name a missing key.** Creating a
   standard, backup, record or value file whose rights name a key the application
   does not have is a parameter error, as ChangeFileSettings already does.
+- **Cyclic record numbering** (see READ RECORD above).
 - **Cyclic record numbering** (see READ RECORD above).
 - **ISO UPDATE BINARY publishes the application's open transaction.** This
   predates this change and a synthetic vector asserts it. The measured ISO APPEND

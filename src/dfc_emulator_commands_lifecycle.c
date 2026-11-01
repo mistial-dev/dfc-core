@@ -455,7 +455,7 @@ static void apply_change_file_settings(
     }
     if(body_len != 3) {
 #if DFC_ENABLE_SDM
-        if(body_len == 0 || (body[0] & DFC_SDM_ENABLED_MASK) == 0) {
+        if((body[0] & DFC_SDM_ENABLED_MASK) == 0) {
 #endif
             dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_LENGTH_ERROR);
             return;
@@ -956,6 +956,18 @@ static void publish_created_file(DfcEmulator* emulator, DfcFile* file, DfcByteBu
     dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_OK);
 }
 
+// A new file's communication mode and access rights may be stored only if the mode is one the
+// card knows and every right is free, denied or names a key the application has. Not measured
+// on a genuine card for creation; ChangeFileSettings already refuses the same thing, and a
+// credential carrying such a file is refused when it is loaded.
+static bool new_file_settings_are_valid(
+    DfcEmulator* emulator,
+    uint8_t comm_settings,
+    uint16_t access_rights) {
+    return dfc_communication_settings_is_valid(comm_settings) &&
+           dfc_access_rights_are_valid(access_rights, emulator_num_keys(emulator));
+}
+
 void dfc_emulator_command_create_std_data_file(
     DfcEmulator* emulator,
     const uint8_t* apdu,
@@ -1018,14 +1030,7 @@ void dfc_emulator_command_create_std_data_file(
     // The communication mode must be one the card defines (plain, MACed or
     // enciphered); anything else is refused rather than stored. Checked after the
     // free-memory checks, which the card answers first.
-    if(!dfc_communication_settings_is_valid(comm_settings)) {
-        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_PARAMETER_ERROR);
-        return;
-    }
-    // A right may name only a key the application has (or free/denied). Not
-    // measured on a genuine card; ChangeFileSettings already refuses the same
-    // thing, and a credential carrying such a file is refused when it is loaded.
-    if(!dfc_access_rights_are_valid(access_rights, emulator_num_keys(emulator))) {
+    if(!new_file_settings_are_valid(emulator, comm_settings, access_rights)) {
         dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_PARAMETER_ERROR);
         return;
     }
@@ -1102,17 +1107,11 @@ void dfc_emulator_command_create_record_file(
     // The communication mode must be one the card defines (plain, MACed or
     // enciphered); anything else is refused rather than stored. Checked after the
     // free-memory checks, which the card answers first.
-    if(!dfc_communication_settings_is_valid(apdu[settings_offset])) {
-        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_PARAMETER_ERROR);
-        return;
-    }
-    // A right may name only a key the application has (or free/denied). Not
-    // measured on a genuine card; ChangeFileSettings already refuses the same
-    // thing, and a credential carrying such a file is refused when it is loaded.
-    if(!dfc_access_rights_are_valid(
+    if(!new_file_settings_are_valid(
+           emulator,
+           apdu[settings_offset],
            dfc_emulator_command_access_rights_from_wire(
-               apdu[settings_offset + 1], apdu[settings_offset + 2]),
-           emulator_num_keys(emulator))) {
+               apdu[settings_offset + 1], apdu[settings_offset + 2]))) {
         dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_PARAMETER_ERROR);
         return;
     }
@@ -1164,16 +1163,8 @@ void dfc_emulator_command_create_value_file(
     // The communication mode must be one the card defines (plain, MACed or
     // enciphered); anything else is refused rather than stored. Checked after the
     // free-memory checks, which the card answers first.
-    if(!dfc_communication_settings_is_valid(apdu[2])) {
-        dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_PARAMETER_ERROR);
-        return;
-    }
-    // A right may name only a key the application has (or free/denied). Not
-    // measured on a genuine card; ChangeFileSettings already refuses the same
-    // thing, and a credential carrying such a file is refused when it is loaded.
-    if(!dfc_access_rights_are_valid(
-           dfc_emulator_command_access_rights_from_wire(apdu[3], apdu[4]),
-           emulator_num_keys(emulator))) {
+    if(!new_file_settings_are_valid(
+           emulator, apdu[2], dfc_emulator_command_access_rights_from_wire(apdu[3], apdu[4]))) {
         dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_PARAMETER_ERROR);
         return;
     }

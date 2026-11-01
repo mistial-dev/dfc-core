@@ -46,12 +46,33 @@ grep -l 'capture-batch: iso-write-2026-11-01' tests/vectors/desfire/v*/*/*.vec
 - **What it changed in the emulator** (undo these if the batch is retired):
   - `src/dfc_virtual_picc.c`: ISO APPEND RECORD discards the open transaction before
     appending (was: published it); an ISO READ RECORD that fails discards the open
-    transaction (`abort_transaction_after_failed_iso_read_record`).
+    transaction (`abort_transaction_after_failed_iso_data_command`).
   - `src/dfc_emulator_commands_lifecycle.c`: GetFileSettings reports the committed
     record count of a record file while a transaction is open.
-  - `tests/test_dfc_iso_file_access.c`: `append-record-transaction-and-cyclic` and
-    `iso-read-record-counts-only-committed-records` follow the vector.
-- **Not covered by this batch:** ISO UPDATE BINARY and READ BINARY (the card's only
-  data file was not writable without authentication), failing ISO commands other than
-  READ RECORD, and a pending UpdateRecord or ClearRecordFile followed by an ISO append.
-  Those keep their earlier, unmeasured behaviour.
+  - `tests/test_dfc_iso_file_access.c`: `append-record-transaction-and-cyclic` follows the vector.
+
+## value-rights-2026-11-01
+
+- **Card:** a factory-fresh genuine DESFire EV3 2K (random UID, PICC master key at its zero
+  default, format enabled). One application with two keys and one value file whose rights are
+  changed section by section.
+- **Taken with:** Proxmark3 in one interactive session per section, real DES (legacy)
+  authentication with the card's own random recovered from its first answer.
+- **Files:** `tests/vectors/desfire/v6/hardware/hardware_physical_ev3_2k_value_rights.vec` and
+  `hardware_physical_ev3_2k_value_comm_modes.vec` and
+  `hardware_physical_ev3_2k_iso_update_binary_transaction.vec`
+- **What it shows:** which of the Read, Write and Read&Write rights each of GetValue, Credit,
+  Debit and LimitedCredit needs, when a refusal is `AE` versus `9D`, and which right decides
+  whether an authenticated value command is plain or enciphered, and how ISO UPDATE BINARY and
+  READ BINARY interact with an open native transaction.
+- **What it changed in the emulator** (undo these if the batch is retired):
+  - `src/dfc_emulator_commands_transactions.c`: GetValue accepts the Write right too; the
+    refusal status of GetValue, Credit, Debit and LimitedCredit follows which rights could
+    authorise the command (`value_refusal_status`); a plain amount must be exactly four bytes
+    and an enciphered one a whole number of cipher blocks.
+  - `src/dfc_emulator_access.c`: `dfc_emulator_file_effective_comm_settings_for_rights`, the
+    protection of a value command follows the right that authorised it.
+  - `src/dfc_virtual_picc.c`: a failing ISO UPDATE BINARY discards the open transaction
+    (`abort_transaction_after_failed_iso_data_command`).
+  - `tests/test_dfc_transaction_selection.c`: the failing-update cases of the old unit test were
+    removed in favour of the vector.

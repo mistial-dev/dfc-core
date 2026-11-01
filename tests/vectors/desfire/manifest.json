@@ -2158,6 +2158,20 @@
       }
     },
     {
+      "path": "v6/hardware/hardware_physical_ev3_2k_iso_update_binary_transaction.vec",
+      "sha256": "bb5d6d764ffc029db695b96ace726fe102491371c56ef3801a91b1106d79cffc",
+      "size": 5618,
+      "role": "emulator-vector",
+      "metadata": {
+        "name": "genuine EV3 2K ISO UPDATE BINARY and READ BINARY against an open native transaction (provisional batch)",
+        "case-id": "hardware-physical-ev3-2k-iso-update-binary-transaction",
+        "source": "physical-card-proxmark3",
+        "origin": "physical-card",
+        "replayable": true,
+        "steps": 72
+      }
+    },
+    {
       "path": "v6/hardware/hardware_physical_ev3_2k_iso_write_transaction.vec",
       "sha256": "ac1455aa0421c9fd9f1ab6d3d5bdd1960b2e4c8818019cdee58ec3057f7e4bc3",
       "size": 7299,
@@ -2183,6 +2197,34 @@
         "origin": "physical-card",
         "replayable": true,
         "steps": 37
+      }
+    },
+    {
+      "path": "v6/hardware/hardware_physical_ev3_2k_value_comm_modes.vec",
+      "sha256": "14b3d2c1c90c058c96a18875e0d2b2210cb46da66e7a92999f949dbce9286b90",
+      "size": 8273,
+      "role": "emulator-vector",
+      "metadata": {
+        "name": "genuine EV3 2K enciphered value file, Debit and Credit plain versus enciphered by authorising right (provisional batch)",
+        "case-id": "hardware-physical-ev3-2k-value-comm-modes",
+        "source": "physical-card-proxmark3",
+        "origin": "physical-card",
+        "replayable": true,
+        "steps": 157
+      }
+    },
+    {
+      "path": "v6/hardware/hardware_physical_ev3_2k_value_rights.vec",
+      "sha256": "6c7a8f96c09fb364deb55c8198c17587fb823b388cc0a0d641b2d457df594e11",
+      "size": 14217,
+      "role": "emulator-vector",
+      "metadata": {
+        "name": "genuine EV3 2K value-file rights for GetValue, Credit, Debit and LimitedCredit (provisional batch)",
+        "case-id": "hardware-physical-ev3-2k-value-rights",
+        "source": "physical-card-proxmark3",
+        "origin": "physical-card",
+        "replayable": true,
+        "steps": 329
       }
     },
     {

@@ -190,6 +190,18 @@ static bool value_delta_result(const DfcFile* file, int32_t delta, int32_t* resu
     return true;
 }
 
+// The status for a value command that no right satisfied. Measured on a genuine EV3
+// (hardware_physical_ev3_2k_value_rights.vec, a provisional batch): "authenticate" (AE) while
+// some right that could authorise the command names a key, "denied" (9D) when none can.
+// `read`, `write` and `rw` say which of the three rights authorise this command.
+static uint8_t value_refusal_status(const DfcFile* file, bool read, bool write, bool rw) {
+    const bool a_key_could_allow =
+        (read && dfc_access_nibble(file->access_rights, 12) < DFC_ACCESS_FREE) ||
+        (write && dfc_access_nibble(file->access_rights, 8) < DFC_ACCESS_FREE) ||
+        (rw && dfc_access_nibble(file->access_rights, 4) < DFC_ACCESS_FREE);
+    return a_key_could_allow ? DFC_STATUS_AUTHENTICATION_ERR : DFC_STATUS_PERMISSION_DENIED;
+}
+
 void dfc_emulator_command_get_value(
     DfcEmulator* emulator,
     const uint8_t* apdu,
@@ -205,9 +217,14 @@ void dfc_emulator_command_get_value(
         dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_PERMISSION_DENIED);
         return;
     }
-    if(!dfc_emulator_command_file_allows_read(file, emulator)) {
-        dfc_bytebuf_append_byte(
-            tx_buffer, dfc_emulator_command_file_access_refusal_status(file, false));
+    // Measured on a genuine EV3 (hardware_physical_ev3_2k_value_rights.vec, a provisional
+    // batch): GetValue works with any one of the Read, Write or Read&Write rights. When none
+    // is satisfied, the answer is "authenticate" (AE) if a key could still satisfy one of
+    // them, and "denied" (9D) when none can.
+    if(!(dfc_emulator_command_file_allows_read(file, emulator) ||
+         dfc_emulator_command_file_allows_write(file, emulator) ||
+         dfc_emulator_command_file_allows_read_write(file, emulator))) {
+        dfc_bytebuf_append_byte(tx_buffer, value_refusal_status(file, true, true, true));
         return;
     }
 
@@ -226,8 +243,8 @@ void dfc_emulator_command_get_value(
     }
 #endif
 
-    uint8_t comm = dfc_emulator_file_effective_comm_settings(
-        emulator, file, DfcFileAccessRead, file->comm_settings);
+    uint8_t comm = dfc_emulator_file_effective_comm_settings_for_rights(
+        emulator, file, true, true, true, file->comm_settings);
     bool ev1_sm = dfc_emulator_native_authentication_active(emulator) &&
                   dfc_secure_messaging_applies_ev1(emulator->secure_messaging, DFC_CMD_GET_VALUE);
 
@@ -288,25 +305,22 @@ void dfc_emulator_command_value_delta(
         dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_PERMISSION_DENIED);
         return;
     }
-    // Which right each value command needs. NOT MEASURED: no capture of a genuine
-    // card covers value-file rights (the card used had no room for a value file),
-    // so this follows the access model the card family uses: Credit needs Read&Write;
-    // Debit needs Read, Write or Read&Write; LimitedCredit needs Write or
-    // Read&Write (it exists so a reader without full Read&Write can add a
-    // bounded amount). Before this, all three were gated as plain Write, which let
-    // a Write-only key, or anyone on a free-Write file, Credit without limit.
+    // Which right each value command needs. Measured on a genuine EV3
+    // (hardware_physical_ev3_2k_value_rights.vec): Credit needs Read&Write; Debit takes Read,
+    // Write or Read&Write; LimitedCredit takes Write or Read&Write (it exists so a reader without
+    // full Read&Write can add a bounded amount).
     const bool plain_credit = !debit && !limited_credit;
     const bool allowed = plain_credit ?
                              dfc_emulator_command_file_allows_read_write(file, emulator) :
                          debit ? (dfc_emulator_command_file_allows_write(file, emulator) ||
                                   dfc_emulator_command_file_allows_read(file, emulator)) :
                                  dfc_emulator_command_file_allows_write(file, emulator);
-    const DfcFileAccess delta_access = plain_credit ? DfcFileAccessReadWrite : DfcFileAccessWrite;
     if(!allowed) {
         dfc_bytebuf_append_byte(
             tx_buffer,
-            plain_credit ? dfc_emulator_command_file_read_write_refusal_status(file) :
-                           dfc_emulator_command_file_access_refusal_status(file, true));
+            plain_credit ? value_refusal_status(file, false, false, true) :
+            debit        ? value_refusal_status(file, true, true, true) :
+                           value_refusal_status(file, false, true, true));
         return;
     }
 
@@ -317,8 +331,8 @@ void dfc_emulator_command_value_delta(
 
     if(dfc_emulator_native_authentication_active(emulator) &&
        dfc_secure_messaging_applies_ev1(emulator->secure_messaging, cmd)) {
-        uint8_t comm = dfc_emulator_file_effective_comm_settings(
-            emulator, file, delta_access, file->comm_settings);
+        uint8_t comm = dfc_emulator_file_effective_comm_settings_for_rights(
+            emulator, file, debit, !plain_credit, true, file->comm_settings);
         if(comm == DFC_COMM_MAC && dfc_secure_messaging_ev1_transmits_command_mac(cmd)) {
             size_t clear_len = dfc_secure_messaging_verify_ev1_transmitted_command_mac(
                 emulator->secure_messaging, cmd, body, body_len);
@@ -372,8 +386,8 @@ void dfc_emulator_command_value_delta(
         dfc_emulator_native_authentication_active(emulator) &&
         !dfc_secure_messaging_applies_ev1(emulator->secure_messaging, cmd)) {
         // D40: Amount may be MAC/ENC under file comm mode.
-        uint8_t comm = dfc_emulator_file_effective_comm_settings(
-            emulator, file, delta_access, file->comm_settings);
+        uint8_t comm = dfc_emulator_file_effective_comm_settings_for_rights(
+            emulator, file, debit, !plain_credit, true, file->comm_settings);
         if(body_len < 1) {
             dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_LENGTH_ERROR);
             return;
@@ -395,6 +409,16 @@ void dfc_emulator_command_value_delta(
                 sizeof(clear),
                 &clear_len);
         } else if(comm == DFC_COMM_ENCIPHERED) {
+            // Measured on a genuine EV3 (hardware_physical_ev3_2k_value_comm_modes.vec): an
+            // enciphered payload that is not a whole number of cipher blocks (a plain amount
+            // sent to an enciphered file) is a length error, answered before any integrity check.
+            const size_t block = emulator->secure_messaging->cipher == DFC_CMD_AUTHENTICATE_AES ?
+                                     DFC_AES_KEY_LENGTH :
+                                     DFC_SM_LEGACY_BLOCK_SIZE;
+            if((body_len - 1) % block != 0) {
+                dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_LENGTH_ERROR);
+                return;
+            }
             clear_len = dfc_secure_messaging_verify_command(
                 emulator->secure_messaging,
                 DFC_COMM_ENCIPHERED,
@@ -412,7 +436,9 @@ void dfc_emulator_command_value_delta(
             return;
         }
         if(comm == DFC_COMM_PLAIN) {
-            if(body_len < 5) {
+            // Measured (hardware_physical_ev3_2k_value_comm_modes.vec): a plain amount is exactly
+            // four bytes; an enciphered payload sent to a plain command is a length error.
+            if(body_len != 5) {
                 dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_LENGTH_ERROR);
                 return;
             }
@@ -421,7 +447,7 @@ void dfc_emulator_command_value_delta(
             amount = dfc_emulator_command_read_int32_le(clear);
         }
     } else {
-        if(body_len < 5) {
+        if(body_len != 5) {
             dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_LENGTH_ERROR);
             return;
         }

@@ -405,7 +405,7 @@ static MunitResult
     return MUNIT_OK;
 }
 
-static MunitResult test_iso_update_failures_preserve_complete_transaction(
+static MunitResult test_iso_update_buffer_too_small_preserves_complete_transaction(
     const MunitParameter params[],
     void* data) {
     (void)params;
@@ -417,35 +417,10 @@ static MunitResult test_iso_update_failures_preserve_complete_transaction(
     uint8_t response[2] = {0};
     size_t response_len = SIZE_MAX;
 
-    const uint8_t malformed[] = {0, DFC_ISO7816_INS_UPDATE_BINARY, 0, 1, 2, 0xA5};
-    munit_assert_int(
-        dfc_virtual_picc_iso_dep_exchange(
-            fixture.session,
-            malformed,
-            sizeof(malformed),
-            response,
-            sizeof(response),
-            &response_len),
-        ==,
-        DfcVirtualPiccStatusOk);
-    munit_assert_memory_equal(2, response, ((uint8_t[]){0x6A, 0x86}));
-    assert_transaction_still_pending(&fixture);
-
-    const uint8_t out_of_bounds[] = {0, DFC_ISO7816_INS_UPDATE_BINARY, 0, 7, 2, 0xA5, 0x5A};
-    munit_assert_int(
-        dfc_virtual_picc_iso_dep_exchange(
-            fixture.session,
-            out_of_bounds,
-            sizeof(out_of_bounds),
-            response,
-            sizeof(response),
-            &response_len),
-        ==,
-        DfcVirtualPiccStatusOk);
-    // Measured: a write past the end of the file is 6985.
-    munit_assert_memory_equal(2, response, ((uint8_t[]){0x69, 0x85}));
-    assert_transaction_still_pending(&fixture);
-
+    // A failing ISO UPDATE BINARY discards the open transaction; that is measured on a genuine
+    // card and replayed from hardware_physical_ev3_2k_iso_update_binary_transaction.vec.
+    // What stays here is the part no vector can express: an answer that does not fit the
+    // caller's buffer leaves the transaction pending until the exact retry succeeds.
     const uint8_t valid[] = {0, DFC_ISO7816_INS_UPDATE_BINARY, 0, 1, 2, 0xA5, 0x5A};
     response_len = SIZE_MAX;
     munit_assert_int(
@@ -1416,8 +1391,8 @@ static MunitTest tests[] = {
      NULL,
      MUNIT_TEST_OPTION_NONE,
      NULL},
-    {"/iso-update-failures-preserve-complete-transaction",
-     test_iso_update_failures_preserve_complete_transaction,
+    {"/iso-update-buffer-too-small-preserves-complete-transaction",
+     test_iso_update_buffer_too_small_preserves_complete_transaction,
      NULL,
      NULL,
      MUNIT_TEST_OPTION_NONE,

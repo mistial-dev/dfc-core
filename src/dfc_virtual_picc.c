@@ -1526,13 +1526,13 @@ static DfcVirtualPiccStatus handle_iso_append_record(
         DFC_ISO7816_SW_OK_HI, DFC_ISO7816_SW_OK_LO, response, response_capacity, response_len);
 }
 
-// Measured on a genuine EV3 (hardware_physical_ev3_2k_iso_write_transaction.vec): an
-// ISO READ RECORD that fails (6985 on an empty file) discards the native
-// transaction that was waiting for CommitTransaction, as a failing native command
-// does. A failure answer is exactly the two status-word bytes; a success carries
-// 9000 (after any data), so only a bare non-9000 answer counts as a failure.
-// Only READ RECORD is covered; failures of the other ISO commands are not measured.
-static DfcVirtualPiccStatus abort_transaction_after_failed_iso_read_record(
+// Measured on a genuine EV3 (hardware_physical_ev3_2k_iso_write_transaction.vec and
+// hardware_physical_ev3_2k_iso_update_binary_transaction.vec): an ISO READ RECORD or an ISO
+// UPDATE BINARY that fails (6985) discards the native transaction that was waiting for
+// CommitTransaction, as a failing native command does. A failure answer is exactly the two
+// status-word bytes; a success carries 9000 (after any data), so only a bare non-9000 answer
+// counts as a failure. A failing READ BINARY is not covered.
+static DfcVirtualPiccStatus abort_transaction_after_failed_iso_data_command(
     DfcVirtualPiccSession* session,
     DfcVirtualPiccStatus status,
     const uint8_t* response,
@@ -2421,10 +2421,10 @@ static DfcVirtualPiccStatus virtual_picc_iso_dep_exchange(
            command[1] == DFC_ISO7816_INS_READ_RECORD) {
             DfcVirtualPiccStatus file_status = handle_iso_file_command(
                 session, command, command_len, response, response_capacity, response_len);
-            // Only READ RECORD failures are measured; the other ISO file commands keep
-            // the open transaction when they fail (not measured either way).
-            if(command[1] == DFC_ISO7816_INS_READ_RECORD)
-                file_status = abort_transaction_after_failed_iso_read_record(
+            // A failing READ RECORD or UPDATE BINARY discards the open transaction.
+            if(command[1] == DFC_ISO7816_INS_READ_RECORD ||
+               command[1] == DFC_ISO7816_INS_UPDATE_BINARY)
+                file_status = abort_transaction_after_failed_iso_data_command(
                     session, file_status, response, response_len);
             return file_status;
         }

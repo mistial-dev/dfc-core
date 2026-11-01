@@ -811,70 +811,6 @@ static MunitResult
     return MUNIT_OK;
 }
 
-// Which right each value command needs. NOT MEASURED on a genuine card (no
-// capture covers value-file rights), so this pins the intended rule:
-// Credit needs Read&Write only; Debit takes Read, Write or Read&Write;
-// LimitedCredit takes Write or Read&Write. Before this, Credit was gated like
-// Debit, so on a file whose Write right is free (E) any unauthenticated reader
-// could add value without limit.
-static MunitResult
-    test_value_commands_need_their_own_rights(const MunitParameter params[], void* user_data) {
-    (void)params;
-    (void)user_data;
-    uint8_t response[8];
-    size_t response_len;
-    // Rights word nibbles, high to low: Read, Write, Read&Write, Change.
-    // Free write (E), read&write held by key 1, read denied (F).
-    // Free write, Read&Write by key 1: no unauthenticated Credit, but Debit is free.
-    struct {
-        uint16_t rights;
-        bool credit_allowed;
-        bool debit_allowed;
-        bool limited_credit_allowed;
-    } cases[] = {
-        // free Write: Debit and LimitedCredit yes, Credit no
-        {0xFE10, false, true, true},
-        // free Read only: Debit yes, the others no
-        {0xEFF0, false, true, false},
-        // free Read&Write: everything
-        {0xFFE0, true, true, true},
-        // denied to everyone
-        {0xFFF0, false, false, false},
-    };
-    for(size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        DfcCredential credential;
-        DfcVirtualPiccSession* session = prepare_session(&credential, DFC_FILE_TYPE_VALUE);
-        DfcFile* file = &credential.files[0];
-        file->access_rights = cases[i].rights;
-        file->comm_settings = DFC_COMM_PLAIN;
-        file->state.value.lower_limit = 0;
-        file->state.value.upper_limit = 1000;
-        file->state.value.current = 100;
-        file->state.value.limited_credit = 1;
-        file->state.value.limited_credit_value = 100;
-        session->emulator->selected_application = DfcEmulatorSelectedApplicationApp;
-        session->emulator->selected_app_index = file->app_index;
-
-        const uint8_t credit[] = {0x90, DFC_CMD_CREDIT, 0, 0, 5, file->number, 5, 0, 0, 0, 0};
-        exchange(session, credit, sizeof(credit), response, sizeof(response), &response_len);
-        munit_assert_size(response_len, ==, 2);
-        munit_assert_uint8(response[0], ==, 0x91);
-        munit_assert_true((response[1] == 0x00) == cases[i].credit_allowed);
-
-        const uint8_t debit[] = {0x90, DFC_CMD_DEBIT, 0, 0, 5, file->number, 5, 0, 0, 0, 0};
-        exchange(session, debit, sizeof(debit), response, sizeof(response), &response_len);
-        munit_assert_true((response_len == 2 && response[1] == 0x00) == cases[i].debit_allowed);
-
-        const uint8_t limited[] = {
-            0x90, DFC_CMD_LIMITED_CREDIT, 0, 0, 5, file->number, 5, 0, 0, 0, 0};
-        exchange(session, limited, sizeof(limited), response, sizeof(response), &response_len);
-        munit_assert_true(
-            (response_len == 2 && response[1] == 0x00) == cases[i].limited_credit_allowed);
-        dfc_virtual_picc_session_free(session);
-    }
-    return MUNIT_OK;
-}
-
 // A credential read back only partly can declare more records than it stores
 // (the decoder accepts it). Every record command indexes the file's bytes by
 // record number times record size, so before this was checked an unauthenticated
@@ -1461,12 +1397,6 @@ static MunitTest tests[] = {
      NULL},
     {"/iso-read-shows-only-committed-backup-data",
      test_iso_read_shows_only_committed_backup_data,
-     NULL,
-     NULL,
-     MUNIT_TEST_OPTION_NONE,
-     NULL},
-    {"/value-commands-need-their-own-rights",
-     test_value_commands_need_their_own_rights,
      NULL,
      NULL,
      MUNIT_TEST_OPTION_NONE,
