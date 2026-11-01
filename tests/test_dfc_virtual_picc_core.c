@@ -69,8 +69,9 @@ static void assert_iso_abort_and_no_native_continuation(DfcVirtualPiccSession* s
     munit_assert_memory_equal(
         2,
         response,
-        ((uint8_t[]){DFC_ISO7816_SW_CONDITIONS_NOT_SATISFIED_HI,
-                     DFC_ISO7816_SW_CONDITIONS_NOT_SATISFIED_LO}));
+        ((uint8_t[]){
+            DFC_ISO7816_SW_CONDITIONS_NOT_SATISFIED_HI,
+            DFC_ISO7816_SW_CONDITIONS_NOT_SATISFIED_LO}));
     munit_assert_int(
         dfc_virtual_picc_iso_dep_exchange(
             session,
@@ -2265,38 +2266,40 @@ static MunitResult
 
     assert_trace_exchange(
         session,
-        ((uint8_t[]){0x90,
-                     DFC_CMD_READ_DATA,
-                     0x00,
-                     0x00,
-                     0x07,
-                     0x0F,
-                     0x00,
-                     0x00,
-                     0x00,
-                     0x05,
-                     0x00,
-                     0x00,
-                     0x00}),
+        ((uint8_t[]){
+            0x90,
+            DFC_CMD_READ_DATA,
+            0x00,
+            0x00,
+            0x07,
+            0x0F,
+            0x00,
+            0x00,
+            0x00,
+            0x05,
+            0x00,
+            0x00,
+            0x00}),
         13,
         ((uint8_t[]){0x30, 0x2F, 0x81, 0x02, 0x0C, 0x1E, 0xA1, 0x78, 0x17, 0x91, DFC_STATUS_OK}),
         11);
 
     assert_trace_exchange(
         session,
-        ((uint8_t[]){0x90,
-                     DFC_CMD_READ_DATA,
-                     0x00,
-                     0x00,
-                     0x07,
-                     0x0F,
-                     0x00,
-                     0x00,
-                     0x00,
-                     0x31,
-                     0x00,
-                     0x00,
-                     0x00}),
+        ((uint8_t[]){
+            0x90,
+            DFC_CMD_READ_DATA,
+            0x00,
+            0x00,
+            0x07,
+            0x0F,
+            0x00,
+            0x00,
+            0x00,
+            0x31,
+            0x00,
+            0x00,
+            0x00}),
         13,
         ((uint8_t[]){0x30, 0x2F, 0x81, 0x02, 0x0C, 0x03, 0xA5, 0x02, 0x05, 0x00, 0xA6,
                      0x08, 0x81, 0x01, 0x01, 0x04, 0x03, 0x03, 0x00, 0x09, 0xA7, 0x17,

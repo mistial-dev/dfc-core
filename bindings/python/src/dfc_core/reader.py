@@ -30,7 +30,18 @@ AUTHENTICATE_AES = 0xAA
 
 
 def build_iso_append_record_apdu(short_file_id: int, data: bytes) -> bytes:
-    """Build a standard ISO/IEC 7816 APPEND RECORD command APDU."""
+    """Build a standard ISO/IEC 7816 APPEND RECORD command APDU.
+
+    Args:
+        short_file_id: Zero for the current file, or an SFI from 1 through 30.
+        data: Non-empty record data to append.
+
+    Returns:
+        The complete short- or extended-length command APDU.
+
+    Raises:
+        ValueError: If the SFI or record-data length is invalid.
+    """
 
     payload = bytes(data)
     if not 0 <= short_file_id <= 0x1E:
@@ -44,7 +55,17 @@ def build_iso_append_record_apdu(short_file_id: int, data: bytes) -> bytes:
 
 
 def parse_iso7816_response(response: bytes) -> tuple[bytes, int]:
-    """Return response data and the unsigned two-byte ISO status word."""
+    """Return response data and the unsigned two-byte ISO status word.
+
+    Args:
+        response: Complete response APDU including SW1 and SW2.
+
+    Returns:
+        Response data and its unsigned status word.
+
+    Raises:
+        ValueError: If the response does not contain SW1 and SW2.
+    """
 
     value = bytes(response)
     if len(value) < 2:

@@ -49,14 +49,14 @@ public final class DfcAdvancedApiTest {
     require(DfcCommand.readData(1, 2, 3, true).instruction() == 0xAD, "wrong ReadData opcode");
     require(DfcCommand.writeData(1, 2, hex("A5"), true).instruction() == 0x8D,
         "wrong WriteData opcode");
-    require(DfcCommand.readRecords(1, 2, 3, true).instruction() == 0xAB,
-        "wrong ReadRecords opcode");
+    require(
+        DfcCommand.readRecords(1, 2, 3, true).instruction() == 0xAB, "wrong ReadRecords opcode");
     require(DfcCommand.writeRecord(1, 2, hex("A5"), true).instruction() == 0x8B,
         "wrong WriteRecord opcode");
     require(DfcCommand.updateRecord(1, 2, 3, hex("A5"), true).instruction() == 0xBA,
         "wrong UpdateRecord opcode");
-    requireHex(DfcIso7816.appendRecord(3, hex("A55A")), "00E2001802A55A",
-        "wrong APPEND RECORD APDU");
+    requireHex(
+        DfcIso7816.appendRecord(3, hex("A55A")), "00E2001802A55A", "wrong APPEND RECORD APDU");
     var response = DfcIso7816.parseResponse(hex("11226A82"));
     requireHex(response.data(), "1122", "wrong ISO response data");
     require(response.statusWord() == 0x6A82, "wrong ISO status word");

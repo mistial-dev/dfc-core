@@ -1,0 +1,40 @@
+# PROVENANCE: Synthetic raw ISO-DEP regression for alternate command transport state.
+name: alternate ISO-DEP wrong-sequence retry and field reset
+case-id: iso-dep-alternate-protocol-retry-reset
+origin: synthetic
+feature-version: 6
+source: generated alternate ISO-DEP transport regression
+requires: ev3,record-files
+uid: 04112233445566
+picc-generation: EV3
+picc-storage: 4096
+picc-key-settings-1: 0F
+picc-key-settings-2: 01
+picc-key-len: 16
+
+scan
+exchange native-apdu 90CA00000E4F49D30F22E110D276000085010000 => 9100
+exchange native-apdu 905A0000034F49D300 => 9100
+exchange native CD0114E100E0EE100000 => 00
+exchange native C10300EEEE080000030000 => 00
+
+# Fragment an alternate WriteData APDU. A repeated first I-block has the old
+# sequence number, is rejected without a response, and leaves the partial APDU
+# available for the correctly numbered final block.
+frame-exchange E080 => 0565810280
+frame-exchange 12908D00000B010000 => A2
+expect-error protocol-error frame-exchange 12908D00000B010000
+frame-exchange 0300040000DEADBEEF00 => 039100
+assert files[0].data = DEADBEEF000000000000000000000000
+
+# Field loss retires an unfinished alternate WriteRecord request. After a new
+# activation the record file is still untouched and accepts a normal command.
+frame-exchange 12908B00000F030000 => A2
+field-off
+assert files[1].data = 000000000000000000000000000000000000000000000000
+scan
+exchange native-apdu 905A0000034F49D300 => 9100
+exchange native-apdu 903B00000F03000000080000111213141516171800 => 9100
+exchange native-apdu 90C7000000 => 9100
+exchange native-apdu 90BB0000070300000001000000 => 11121314151617189100
+field-off

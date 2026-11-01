@@ -241,9 +241,17 @@ def validate_step(line: str, dialects: set[str]) -> None:
             parse_hex(value)
         return
     if verb == "expect-error":
-        if len(words) < 3 or words[1] != "random-source":
+        if len(words) < 3:
             raise ValueError("malformed expect-error")
+        error_class = words[1]
         operation = words[2]
+        if error_class == "protocol-error":
+            if operation != "frame-exchange" or len(words) != 4:
+                raise ValueError("malformed protocol-error operation")
+            parse_hex(words[3])
+            return
+        if error_class != "random-source":
+            raise ValueError("malformed expect-error")
         if operation == "scan":
             if len(words) != 3:
                 raise ValueError("malformed expect-error scan")

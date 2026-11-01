@@ -258,11 +258,9 @@ public record DfcCommand(int instruction, byte[] data) {
    * @param isoChaining whether to select the ISO-DEP chained instruction
    * @return a ReadData command
    */
-  public static DfcCommand readData(
-      int fileNumber, int offset, int length, boolean isoChaining) {
+  public static DfcCommand readData(int fileNumber, int offset, int length, boolean isoChaining) {
     return new DfcCommand(
-        isoChaining ? READ_DATA_ISO_CHAINING : READ_DATA,
-        fileRange(fileNumber, offset, length));
+        isoChaining ? READ_DATA_ISO_CHAINING : READ_DATA, fileRange(fileNumber, offset, length));
   }
   /**
    * Creates WriteData.
@@ -314,8 +312,7 @@ public record DfcCommand(int instruction, byte[] data) {
    */
   public static DfcCommand readRecords(
       int fileNumber, int firstRecord, int count, boolean isoChaining) {
-    return new DfcCommand(
-        isoChaining ? READ_RECORDS_ISO_CHAINING : READ_RECORDS,
+    return new DfcCommand(isoChaining ? READ_RECORDS_ISO_CHAINING : READ_RECORDS,
         fileRange(fileNumber, firstRecord, count));
   }
   /**

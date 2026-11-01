@@ -1131,9 +1131,11 @@ static bool run_vector(const char* path) {
         if(strcmp(verb, "expect-error") == 0) {
             char* error_class = strtok(NULL, " \t");
             char* operation = strtok(NULL, " \t");
-            if(!finite_random_source || !error_class ||
-               strcmp(error_class, "random-source") != 0 || !operation) {
-                fail(&st, "expect-error requires a finite random source");
+            bool random_error = error_class && strcmp(error_class, "random-source") == 0;
+            bool protocol_error = error_class && strcmp(error_class, "protocol-error") == 0;
+            if(!operation || (!random_error && !protocol_error) ||
+               (random_error && !finite_random_source)) {
+                fail(&st, "unsupported expect-error class or missing finite random source");
                 break;
             }
 
@@ -1145,6 +1147,10 @@ static bool run_vector(const char* path) {
             uint8_t got[VectorMaximumByteCount];
 
             if(strcmp(operation, "scan") == 0) {
+                if(protocol_error) {
+                    fail(&st, "protocol-error only supports frame-exchange");
+                    break;
+                }
                 if(strtok(NULL, " \t")) {
                     fail(&st, "expected-error scan takes no arguments");
                     break;
@@ -1158,6 +1164,10 @@ static bool run_vector(const char* path) {
                 }
                 bool frame = strcmp(operation, "frame-exchange") == 0;
                 bool exchange = strcmp(operation, "exchange") == 0;
+                if(protocol_error && !frame) {
+                    fail(&st, "protocol-error only supports frame-exchange");
+                    break;
+                }
                 VectorWireDialect dialect = VectorWireDialectNativeApdu;
                 char* command_hex = strtok(NULL, " \t");
                 if(exchange && command_hex) {
@@ -1189,8 +1199,15 @@ static bool run_vector(const char* path) {
                              session, command, (size_t)command_len, got, sizeof(got), &got_len);
             }
             size_t remaining_after = dfc_host_random_remaining();
-            if(!replay_random_failed() || rc != DfcVirtualPiccStatusProtocolError ||
-               got_len != 0 || remaining_after != remaining_before) {
+            if(protocol_error) {
+                if(rc != DfcVirtualPiccStatusProtocolError || got_len != 0) {
+                    fail(
+                        &st, "protocol error mismatch (status=%d response=%zu)", (int)rc, got_len);
+                    break;
+                }
+            } else if(
+                !replay_random_failed() || rc != DfcVirtualPiccStatusProtocolError ||
+                got_len != 0 || remaining_after != remaining_before) {
                 fail(
                     &st,
                     "random-source failure was not atomic "

@@ -26,6 +26,9 @@ steps and assertion paths are errors.
   `expect-error random-source frame-exchange <frame>` require the operation to
   report a random-source failure with an empty response. The failed draw must
   consume no queued bytes or change session state.
+- `expect-error protocol-error frame-exchange <frame>` requires raw ISO-DEP
+  processing to report a protocol error with an empty response. The session
+  remains active so later steps can verify that a retry or reset recovers.
 - `advance-time <milliseconds>` advances the injected monotonic clock.
 - `assert <path> = <value>` compares credential, emulator, or activation state.
 - `clear-dirty` clears the credential persistence flag.

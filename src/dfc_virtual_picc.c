@@ -1024,6 +1024,21 @@ static bool iso_dep_initial_response_is_staged(const DfcVirtualPiccSession* sess
            session->pending_response_offset != DFC_DIRECT_RESPONSE_PENDING;
 }
 
+static bool iso_dep_response_chain_is_pending(const DfcVirtualPiccSession* session) {
+    return session->pending_response_len > 0 &&
+           session->pending_response_offset != DFC_DIRECT_RESPONSE_PENDING;
+}
+
+static bool command_can_use_large_iso_dep_storage(const uint8_t* command, size_t command_len) {
+    if(!command || command_len < 2) return false;
+    if(dfc_command_uses_iso_dep_request_chaining(command[0])) return true;
+    if(command[0] == DFC_ISO7816_CLA_STANDARD)
+        return command[1] == DFC_ISO7816_INS_APPEND_RECORD ||
+               command[1] == DFC_ISO7816_INS_UPDATE_BINARY;
+    return command[0] == DFC_ISO7816_CLA_WRAPPER &&
+           dfc_command_uses_iso_dep_request_chaining(command[1]);
+}
+
 static DfcVirtualPiccStatus replay_staged_iso_dep_response(
     DfcVirtualPiccSession* session,
     const uint8_t* frame,
@@ -1903,6 +1918,10 @@ static DfcVirtualPiccStatus virtual_picc_iso_dep_exchange(
         size_t declared_len = (size_t)5 + lc;
         // Exactly one optional Le may follow the declared command data.
         if(command_len < declared_len || command_len > declared_len + 1) {
+            // Even a malformed wrapped APDU terminates an in-progress native
+            // multipass command. It must not leave CmdState accepting a later AF.
+            if(dfc_emulator_abort_pending_native_work(session->emulator))
+                dfc_emulator_reset_session(session->emulator);
             if(response_capacity < 2) return DfcVirtualPiccStatusBufferTooSmall;
             response[0] = 0x91;
             response[1] = DFC_STATUS_LENGTH_ERROR;
@@ -2016,6 +2035,19 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_frame_exchange(
     if(!validate_pending_response(session)) return DfcVirtualPiccStatusProtocolError;
 
     uint8_t pcb = frame[0];
+    // DESELECT is valid at every ISO-DEP phase, including while the first
+    // response block is staged for a capacity retry. Validate and echo it
+    // before retiring the response loan and activation-scoped session state.
+    if(is_s_block(pcb) && (pcb & (uint8_t)~DFC_ISO_DEP_CID) == DFC_ISO_DEP_S_BLOCK) {
+        if(!iso_dep_cid_matches(session, frame, frame_len))
+            return DfcVirtualPiccStatusProtocolError;
+        if(response_capacity < frame_len) return DfcVirtualPiccStatusBufferTooSmall;
+        memcpy(response, frame, frame_len);
+        *response_len = frame_len;
+        dfc_emulator_reset_activation(session->emulator);
+        clear_protocol(session);
+        return DfcVirtualPiccStatusOk;
+    }
     if(iso_dep_initial_response_is_staged(session)) {
         if(!is_i_block(pcb)) return DfcVirtualPiccStatusProtocolError;
         return replay_staged_iso_dep_response(
@@ -2035,6 +2067,20 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_frame_exchange(
 
         const uint8_t* inf = frame + offset;
         size_t inf_len = frame_len - offset;
+
+        // A response chain is advanced only by R-blocks. Retransmit the last
+        // PICC block for a duplicate I-block, but never dispatch a new command
+        // while the previous answer still owns transport storage.
+        if(iso_dep_response_chain_is_pending(session)) {
+            if(sequence != session->expected_pcd_sequence && session->last_picc_block_len > 0) {
+                if(response_capacity < session->last_picc_block_len)
+                    return DfcVirtualPiccStatusBufferTooSmall;
+                memcpy(response, session->last_picc_block, session->last_picc_block_len);
+                *response_len = session->last_picc_block_len;
+                return DfcVirtualPiccStatusOk;
+            }
+            return DfcVirtualPiccStatusProtocolError;
+        }
 
         if(sequence != session->expected_pcd_sequence) {
             // ISO14443-4 protocol errors leave the PICC in receive mode.
@@ -2056,11 +2102,7 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_frame_exchange(
                                                                        inf;
                 size_t header_len = session->pending_command_len ? session->pending_command_len :
                                                                    inf_len;
-                if(header_len < 2 || (!dfc_command_uses_iso_dep_request_chaining(header[0]) &&
-                                      !(header[0] == DFC_ISO7816_CLA_STANDARD &&
-                                        header[1] == DFC_ISO7816_INS_APPEND_RECORD) &&
-                                      !(header[0] == DFC_ISO7816_CLA_WRAPPER &&
-                                        dfc_command_uses_iso_dep_request_chaining(header[1]))))
+                if(!command_can_use_large_iso_dep_storage(header, header_len))
                     return DfcVirtualPiccStatusBufferTooSmall;
                 session->emulator->command_chain =
                     dfc_platform_alloc(DFC_EMULATOR_CHAIN_BUFFER_SIZE, DfcAllocCommandChain);
@@ -2081,9 +2123,6 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_frame_exchange(
            inf_len > command_capacity - session->pending_command_len)
             return DfcVirtualPiccStatusBufferTooSmall;
         if(more && response_capacity < offset) return DfcVirtualPiccStatusBufferTooSmall;
-        if(!more && frame_len > sizeof(session->pending_command))
-            return DfcVirtualPiccStatusBufferTooSmall;
-
         if(more || session->pending_command_len) {
             memcpy(command_storage + session->pending_command_len, inf, inf_len);
             session->pending_command_len += inf_len;
@@ -2198,9 +2237,6 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_frame_exchange(
             return DfcVirtualPiccStatusProtocolError;
         if(response_capacity < frame_len) return DfcVirtualPiccStatusBufferTooSmall;
         memcpy(response, frame, frame_len);
-        if((response[0] & (uint8_t)~DFC_ISO_DEP_CID) == DFC_ISO_DEP_S_BLOCK) {
-            session->iso_dep_selected = false;
-        }
         *response_len = frame_len;
         return DfcVirtualPiccStatusOk;
     }

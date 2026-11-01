@@ -48,7 +48,8 @@ public final class DfcIso7816 {
     Objects.requireNonNull(response, "response");
     if (response.length < 2)
       throw new IllegalArgumentException("response must include SW1 and SW2");
-    int status = ((response[response.length - 2] & 0xff) << 8) | (response[response.length - 1] & 0xff);
+    int status =
+        ((response[response.length - 2] & 0xff) << 8) | (response[response.length - 1] & 0xff);
     return new Response(Arrays.copyOf(response, response.length - 2), status);
   }
 
@@ -59,7 +60,12 @@ public final class DfcIso7816 {
    * @param statusWord unsigned two-byte ISO status word
    */
   public record Response(byte[] data, int statusWord) {
-    /** Defensively copies response data. */
+    /**
+     * Defensively copies response data.
+     *
+     * @param data response data without SW1 and SW2
+     * @param statusWord unsigned two-byte ISO status word
+     */
     public Response {
       data = Objects.requireNonNull(data, "data").clone();
       if ((statusWord & ~0xffff) != 0)

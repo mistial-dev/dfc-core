@@ -2466,6 +2466,20 @@
       }
     },
     {
+      "path": "v6/synthetic/iso-chained-family-transitions.vec",
+      "sha256": "dd1e5b9b68afcea99d785f6aa1b58b385ffbddcf00da2a57c04e146abe20ad6e",
+      "size": 2027,
+      "role": "emulator-vector",
+      "metadata": {
+        "name": "canonical and ISO-chained command family transitions",
+        "case-id": "iso-chained-family-transitions",
+        "source": "generated alternate command family regression",
+        "origin": "synthetic",
+        "replayable": true,
+        "steps": 25
+      }
+    },
+    {
       "path": "v6/synthetic/iso-command-aborts-native-chain.vec",
       "sha256": "26b8e2f3ac81d8a2426653a3502dbf1a71bab282cff0d0ccfd41f9305dcd56f3",
       "size": 491,
@@ -2477,6 +2491,20 @@
         "origin": "synthetic",
         "replayable": true,
         "steps": 5
+      }
+    },
+    {
+      "path": "v6/synthetic/iso-dep-alternate-protocol-retry-reset.vec",
+      "sha256": "d4af762de5b669c7b33e289296aff38ed78c5602430912ac9af1a663b71e3c55",
+      "size": 1626,
+      "role": "emulator-vector",
+      "metadata": {
+        "name": "alternate ISO-DEP wrong-sequence retry and field reset",
+        "case-id": "iso-dep-alternate-protocol-retry-reset",
+        "source": "generated alternate ISO-DEP transport regression",
+        "origin": "synthetic",
+        "replayable": true,
+        "steps": 19
       }
     },
     {
