@@ -384,9 +384,9 @@ void dfc_emulator_command_emit_payload_with_chaining_comm(
     }
     if(is_secured) emulator->response_secured = true;
 
-    // The alternate ReadRecords instruction delegates continuation to ISO-DEP.
+    // Alternate read instructions delegate continuation to ISO-DEP.
     // Return its complete logical response so the transport can split I-blocks.
-    if(cmd == DFC_CMD_READ_RECORDS_ISO) {
+    if(cmd == DFC_CMD_READ_DATA_ISO || cmd == DFC_CMD_READ_RECORDS_ISO) {
         if(!iso_transport) {
             size_t used = dfc_bytebuf_get_size_bytes(tx_buffer);
             if(used < DFC_BYTEBUF_MAX && payload_len < DFC_BYTEBUF_MAX - used)
@@ -494,7 +494,7 @@ bool dfc_emulator_command_emit_zero_payload_with_chaining_comm(
         return true;
     }
     if(dfc_emulator_native_authentication_active(emulator) || comm != DFC_COMM_PLAIN ||
-       cmd == DFC_CMD_READ_RECORDS_ISO)
+       (cmd == DFC_CMD_READ_DATA_ISO || cmd == DFC_CMD_READ_RECORDS_ISO))
         return false;
 
     static const uint8_t zero_frame[DFC_EV3_MAX_RESPONSE_PAYLOAD] = {0};
@@ -1322,7 +1322,7 @@ static bool dispatch_native_command(
 #if DFC_ENABLE_SDM
     // SDM ReadData may need randomness. Keep the EV1 IV tentative until the
     // complete response exists, so an exhausted source is retryable.
-    defer_ev1_cmd_cmac = defer_ev1_cmd_cmac || cmd == DFC_CMD_READ_DATA;
+    defer_ev1_cmd_cmac = defer_ev1_cmd_cmac || dfc_file_command_base(cmd) == DFC_CMD_READ_DATA;
 #endif
     if(!defer_ev1_cmd_cmac) {
         if(!update_ev1_command_if_active(emulator, cmd, buffer + 1, buffer_len - 1)) {
@@ -1332,9 +1332,7 @@ static bool dispatch_native_command(
         }
     }
 
-#if DFC_ENABLE_RECORD_FILES
-    cmd = dfc_record_command_base(cmd);
-#endif
+    cmd = dfc_file_command_base(cmd);
     switch(cmd) {
 #define DFC_NATIVE_COMMAND(command) case command:
 #include "dfc_emulator_native_command_registry.inc"
@@ -1438,7 +1436,8 @@ bool dfc_emulator_handle_transport_command(
     size_t buffer_len,
     DfcByteBuf* tx_buffer) {
     // Only this transport consumer accepts a lent ISO response in pending_chain.
-    bool iso_read = buffer_len && buffer[0] == DFC_CMD_READ_RECORDS_ISO;
+    bool iso_read = buffer_len &&
+                    (buffer[0] == DFC_CMD_READ_DATA_ISO || buffer[0] == DFC_CMD_READ_RECORDS_ISO);
     if(iso_read) emulator->pending_chain_last = DFC_ISO_DEP_RESPONSE_PENDING;
     bool handled = dfc_emulator_handle_command(emulator, buffer, buffer_len, tx_buffer, NULL);
     if(iso_read && emulator->pending_chain_last == DFC_ISO_DEP_RESPONSE_PENDING)

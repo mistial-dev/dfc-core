@@ -19,7 +19,7 @@ static DfcFile* target_file(DfcEmulator* emulator, const uint8_t* command, size_
 }
 
 static bool command_file_access(uint8_t command, DfcFileAccess* access) {
-    uint8_t base = dfc_record_command_base(command);
+    uint8_t base = dfc_file_command_base(command);
     switch(base) {
     case DFC_CMD_READ_DATA:
     case DFC_CMD_READ_RECORDS:
@@ -255,7 +255,7 @@ bool dfc_ev2_protect_response(
     size_t response_data_len = clear_response_len - 1;
     DfcFile* file = NULL;
     uint8_t comm = command_file_comm(emulator, clear_command, clear_command_len, &file);
-    uint8_t base_command = dfc_record_command_base(clear_command[0]);
+    uint8_t base_command = dfc_file_command_base(clear_command[0]);
     // GetCardUID is Full regardless of file settings; file reads inherit Full
     // from the selected file's effective communication mode.
     bool encrypt =

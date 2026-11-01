@@ -427,18 +427,11 @@ bool dfc_emulator_command_read_data(
         emulator, file, DfcFileAccessRead, file->comm_settings);
     if(committed_data_is_zero) {
         if(!dfc_emulator_command_emit_zero_payload_with_chaining_comm(
-               emulator, tx_buffer, DFC_CMD_READ_DATA, read_len, comm))
+               emulator, tx_buffer, apdu[0], read_len, comm))
             dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_BOUNDARY_ERROR);
     } else {
         dfc_emulator_command_emit_payload_with_chaining_comm(
-            emulator,
-            tx_buffer,
-            DFC_CMD_READ_DATA,
-            read_data,
-            read_len,
-            1,
-            comm,
-            requested_len == 0);
+            emulator, tx_buffer, apdu[0], read_data, read_len, 1, comm, requested_len == 0);
     }
 
     if(dfc && read_len > 0) {
@@ -559,7 +552,7 @@ void dfc_emulator_command_write_data(
     }
 
     bool ev1_sm = dfc_emulator_native_authentication_active(emulator) &&
-                  dfc_secure_messaging_applies_ev1(emulator->secure_messaging, DFC_CMD_WRITE_DATA);
+                  dfc_secure_messaging_applies_ev1(emulator->secure_messaging, apdu[0]);
     const uint8_t* clear = NULL;
     size_t scratch_len = 0;
     size_t out_len = dfc_emulator_command_unwrap_write_payload(

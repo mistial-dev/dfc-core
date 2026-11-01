@@ -346,7 +346,12 @@ DFC_NATIVE_COMMAND(DFC_CMD_READ_DATA)
             memcpy(read_original_iv, emulator->secure_messaging->iv, sizeof(read_original_iv));
         }
         if(!prepare_ev1_command_update(
-               emulator, cmd, buffer + 1, buffer_len - 1, read_candidate_iv, &read_has_candidate)) {
+               emulator,
+               buffer[0],
+               buffer + 1,
+               buffer_len - 1,
+               read_candidate_iv,
+               &read_has_candidate)) {
             dfc_emulator_reset_session(emulator);
             dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_INTEGRITY_ERROR);
             return true;
@@ -413,7 +418,6 @@ DFC_NATIVE_COMMAND(DFC_CMD_READ_RECORDS)
         handle_read_records(emulator, buffer, tx_buffer);
         return true;
 DFC_NATIVE_COMMAND(DFC_CMD_UPDATE_RECORD)
-DFC_NATIVE_COMMAND(DFC_CMD_UPDATE_RECORD_ISO)
         if(emulator->credential->card.generation == DfcGenerationEv1) {
             dfc_bytebuf_append_byte(tx_buffer, DFC_STATUS_ILLEGAL_COMMAND_CODE);
             return true;

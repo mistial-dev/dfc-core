@@ -2,6 +2,7 @@
 #include "dfc_credential_i.h"
 #include "dfc_ev2.h"
 #include "dfc_emulator_i.h"
+#include "dfc_emulator_commands_i.h"
 #include "dfc_iso_dep.h"
 
 #if DFC_ENABLE_EMULATOR
@@ -1060,6 +1061,156 @@ static DfcVirtualPiccStatus write_iso_conditions_not_satisfied(
         response_len);
 }
 
+static DfcVirtualPiccStatus
+    write_iso_security_status(uint8_t* response, size_t response_capacity, size_t* response_len);
+
+static bool parse_iso_append_record_data(
+    const uint8_t* command,
+    size_t command_len,
+    const uint8_t** data,
+    size_t* data_len) {
+    if(!command || command_len < 5 || !data || !data_len) return false;
+    size_t header_len = 5;
+    size_t declared_len = command[4];
+    if(command[4] == 0) {
+        if(command_len < 7) return false;
+        header_len = 7;
+        declared_len = ((size_t)command[5] << 8) | command[6];
+        if(declared_len == 0) return false;
+    }
+    if(command_len != header_len + declared_len) return false;
+    *data = command + header_len;
+    *data_len = declared_len;
+    return true;
+}
+
+static DfcFile* find_iso_file_by_short_id(DfcVirtualPiccSession* session, uint8_t short_id) {
+    if(!session || short_id == 0 || short_id > 0x1E ||
+       session->emulator->selected_application != DfcEmulatorSelectedApplicationApp)
+        return NULL;
+    for(size_t i = 0; i < session->credential->num_files; i++) {
+        DfcFile* file = &session->credential->files[i];
+        if(file->app_index == session->emulator->selected_app_index && file->has_iso_file_id &&
+           (file->iso_file_id & 0x1F) == short_id) {
+            session->iso_file_selected = true;
+            session->iso_file_index = i;
+            return file;
+        }
+    }
+    return NULL;
+}
+
+static DfcVirtualPiccStatus handle_iso_append_record(
+    DfcVirtualPiccSession* session,
+    const uint8_t* command,
+    size_t command_len,
+    uint8_t* response,
+    size_t response_capacity,
+    size_t* response_len) {
+    const uint8_t* record_data = NULL;
+    size_t record_len = 0;
+    if(!parse_iso_append_record_data(command, command_len, &record_data, &record_len)) {
+        return write_status_word(
+            DFC_ISO7816_SW_WRONG_LENGTH_HI,
+            DFC_ISO7816_SW_WRONG_LENGTH_LO,
+            response,
+            response_capacity,
+            response_len);
+    }
+    if(command[2] != 0 || (command[3] & 0x07) != 0 || (command[3] >> 3) == 0x1F) {
+        return write_status_word(
+            DFC_ISO7816_SW_WRONG_PARAMETERS_HI,
+            DFC_ISO7816_SW_WRONG_PARAMETERS_LO,
+            response,
+            response_capacity,
+            response_len);
+    }
+    if(response_capacity < DFC_ISO7816_STATUS_WORD_LENGTH)
+        return DfcVirtualPiccStatusBufferTooSmall;
+    if(session->emulator->selected_application != DfcEmulatorSelectedApplicationApp)
+        return write_iso_conditions_not_satisfied(response, response_capacity, response_len);
+
+    uint8_t short_id = command[3] >> 3;
+    DfcFile* file = NULL;
+    if(short_id != 0) {
+        file = find_iso_file_by_short_id(session, short_id);
+        if(!file) {
+            return write_status_word(
+                DFC_ISO7816_SW_NOT_FOUND_HI,
+                DFC_ISO7816_SW_NOT_FOUND_LO,
+                response,
+                response_capacity,
+                response_len);
+        }
+    } else if(session->iso_file_selected && session->iso_file_index < session->credential->num_files) {
+        file = &session->credential->files[session->iso_file_index];
+    }
+    if(!file || file->app_index != session->emulator->selected_app_index ||
+       (file->type != DFC_FILE_TYPE_LINEAR_RECORD && file->type != DFC_FILE_TYPE_CYCLIC_RECORD)) {
+        return write_iso_conditions_not_satisfied(response, response_capacity, response_len);
+    }
+#if DFC_ENABLE_EV2_SECURE_MESSAGING
+    if(session->emulator->ev2_session_active)
+        return write_iso_security_status(response, response_capacity, response_len);
+#endif
+    if(standard_iso_files_blocked_by_transaction_mac(session->credential, file->app_index))
+        return write_iso_conditions_not_satisfied(response, response_capacity, response_len);
+    if(file->comm_settings != DFC_COMM_PLAIN ||
+       !dfc_emulator_file_access_allowed(session->emulator, file, DfcFileAccessWrite)) {
+        return write_iso_security_status(response, response_capacity, response_len);
+    }
+    if(record_len > file->state.record.size) {
+        return write_iso_conditions_not_satisfied(response, response_capacity, response_len);
+    }
+
+#if DFC_ENABLE_TRANSACTIONAL_DATA_FILES
+    uint8_t operation = dfc_emulator_command_transaction_record_operation(session->emulator, file);
+    if(operation == RecordTransactionUpdate || operation == RecordTransactionClear)
+        return write_iso_conditions_not_satisfied(response, response_capacity, response_len);
+#endif
+
+    size_t capacity = file->state.record.max_records;
+    if(file->type == DFC_FILE_TYPE_CYCLIC_RECORD) capacity = capacity > 0 ? capacity - 1 : 0;
+    if(capacity == 0 ||
+       (file->type == DFC_FILE_TYPE_LINEAR_RECORD && file->state.record.count >= capacity)) {
+        return write_iso_conditions_not_satisfied(response, response_capacity, response_len);
+    }
+    if(file->state.record.size > SIZE_MAX / capacity ||
+       capacity * (size_t)file->state.record.size > file->data_len) {
+        return write_status_word(
+            DFC_ISO7816_SW_MEMORY_FAILURE_HI,
+            DFC_ISO7816_SW_MEMORY_FAILURE_LO,
+            response,
+            response_capacity,
+            response_len);
+    }
+    uint8_t* data = dfc_file_data(session->credential, file);
+    if(!data) {
+        return write_status_word(
+            DFC_ISO7816_SW_MEMORY_FAILURE_HI,
+            DFC_ISO7816_SW_MEMORY_FAILURE_LO,
+            response,
+            response_capacity,
+            response_len);
+    }
+
+    size_t record_index = file->state.record.count;
+    if(file->type == DFC_FILE_TYPE_CYCLIC_RECORD && record_index >= capacity) {
+        size_t retained_len = (capacity - 1) * (size_t)file->state.record.size;
+        if(retained_len) memmove(data, data + file->state.record.size, retained_len);
+        record_index = capacity - 1;
+        file->state.record.count = (uint32_t)capacity;
+    } else {
+        file->state.record.count++;
+    }
+    memset(data + record_index * file->state.record.size, 0, file->state.record.size);
+    memcpy(data + record_index * file->state.record.size, record_data, record_len);
+    file->transaction_pending = true;
+    dfc_emulator_publish_transaction(session->emulator);
+    return write_status_word(
+        DFC_ISO7816_SW_OK_HI, DFC_ISO7816_SW_OK_LO, response, response_capacity, response_len);
+}
+
 static DfcVirtualPiccStatus handle_iso_select(
     DfcVirtualPiccSession* session,
     const uint8_t* command,
@@ -1512,7 +1663,7 @@ static DfcVirtualPiccStatus handle_native_exchange(
     session->pending_response_len = 0;
     session->pending_response_offset = 0;
     session->pending_response_prefix_len = 0;
-    if(command_len > clear_capacity && command[0] == DFC_CMD_WRITE_RECORD_ISO &&
+    if(command_len > clear_capacity && dfc_command_uses_iso_dep_request_chaining(command[0]) &&
        !session->emulator->command_chain_active && command_len <= DFC_EMULATOR_CHAIN_BUFFER_SIZE) {
         if(!session->emulator->command_chain)
             session->emulator->command_chain =
@@ -1727,6 +1878,11 @@ static DfcVirtualPiccStatus virtual_picc_iso_dep_exchange(
         }
 #endif
 
+        if(command[1] == DFC_ISO7816_INS_APPEND_RECORD) {
+            return handle_iso_append_record(
+                session, command, command_len, response, response_capacity, response_len);
+        }
+
         if(command[1] == DFC_ISO7816_INS_READ_BINARY ||
            command[1] == DFC_ISO7816_INS_UPDATE_BINARY ||
            command[1] == DFC_ISO7816_INS_READ_RECORD) {
@@ -1755,7 +1911,8 @@ static DfcVirtualPiccStatus virtual_picc_iso_dep_exchange(
         }
         uint8_t* native_command = command_scratch;
         size_t native_capacity = sizeof(command_scratch);
-        if((size_t)lc + 1 > native_capacity && command[1] == DFC_CMD_WRITE_RECORD_ISO &&
+        if((size_t)lc + 1 > native_capacity &&
+           dfc_command_uses_iso_dep_request_chaining(command[1]) &&
            !session->emulator->command_chain_active) {
             native_command = session->emulator->command_chain;
             if(!native_command) {
@@ -1899,9 +2056,11 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_frame_exchange(
                                                                        inf;
                 size_t header_len = session->pending_command_len ? session->pending_command_len :
                                                                    inf_len;
-                if(header_len < 2 || (header[0] != DFC_CMD_WRITE_RECORD_ISO &&
+                if(header_len < 2 || (!dfc_command_uses_iso_dep_request_chaining(header[0]) &&
+                                      !(header[0] == DFC_ISO7816_CLA_STANDARD &&
+                                        header[1] == DFC_ISO7816_INS_APPEND_RECORD) &&
                                       !(header[0] == DFC_ISO7816_CLA_WRAPPER &&
-                                        header[1] == DFC_CMD_WRITE_RECORD_ISO)))
+                                        dfc_command_uses_iso_dep_request_chaining(header[1]))))
                     return DfcVirtualPiccStatusBufferTooSmall;
                 session->emulator->command_chain =
                     dfc_platform_alloc(DFC_EMULATOR_CHAIN_BUFFER_SIZE, DfcAllocCommandChain);
