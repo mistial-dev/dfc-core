@@ -27,6 +27,24 @@
       ]
     },
     {
+      "id": "native-iso-dep-chained-data-and-records",
+      "evidence": [
+        "hardware/hardware_physical_ev3_2k_iso_chained_commands.vec"
+      ]
+    },
+    {
+      "id": "iso7816-append-record",
+      "evidence": [
+        "hardware/hardware_physical_ev3_2k_iso_chained_commands.vec"
+      ]
+    },
+    {
+      "id": "picc-random-id-and-format-disable",
+      "evidence": [
+        "hardware/hardware_physical_ev3_2k_terminal_configuration.vec"
+      ]
+    },
+    {
       "id": "iso7816-parameter-and-phase-errors",
       "evidence": [
         "hardware/hardware_physical_ev3_4k_iso_auth_external-without-challenge.vec",
@@ -156,6 +174,7 @@
     {
       "id": "format-scope-and-disable-controls",
       "evidence": [
+        "hardware/hardware_physical_ev3_2k_terminal_configuration.vec",
         "synthetic/delegated-format-disabled.vec",
         "synthetic/delegated-format-scope.vec",
         "synthetic/format-application-boundaries.vec",

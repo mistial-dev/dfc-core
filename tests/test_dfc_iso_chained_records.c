@@ -12,9 +12,12 @@
 #include <string.h>
 
 enum {
+    ReadDataIso = 0xAD,
+    WriteDataIso = 0x8D,
     ReadRecordsIso = 0xAB,
     WriteRecordIso = 0x8B,
     RecordFile = 0x0A,
+    DataFile = 0x0B,
 };
 
 static const uint8_t Aid[] = {0x01, 0x02, 0x03};
@@ -25,6 +28,7 @@ typedef struct {
     DfcVirtualPiccSession* picc;
     DfcReaderSession reader;
     DfcFile* file;
+    DfcFile* data_file;
 } Fixture;
 
 static void fixture_open(
@@ -51,6 +55,12 @@ static void fixture_open(
     fixture->file->state.record.count = record_count;
     munit_assert_true(
         dfc_file_resize(&fixture->credential, fixture->file, record_size * max_records));
+    fixture->data_file = dfc_credential_create_file(&fixture->credential, 0, DataFile);
+    munit_assert_not_null(fixture->data_file);
+    fixture->data_file->type = DFC_FILE_TYPE_STANDARD_DATA;
+    fixture->data_file->comm_settings = DFC_COMM_PLAIN;
+    fixture->data_file->access_rights = 0xEEEE;
+    munit_assert_true(dfc_file_resize(&fixture->credential, fixture->data_file, 300));
     fixture->picc = dfc_virtual_picc_session_alloc(&fixture->credential);
     munit_assert_not_null(fixture->picc);
     DfcVirtualPiccActivation activation;
@@ -204,6 +214,33 @@ static MunitResult test_raw_dispatch_and_errors(const MunitParameter params[], v
     assert_status(response, response_len, DFC_STATUS_BOUNDARY_ERROR);
     munit_assert_uint32(fixture.file->state.record.count, ==, 3);
     munit_assert_memory_equal(sizeof(committed), stored, committed);
+
+    fixture_close(&fixture);
+    return MUNIT_OK;
+}
+
+static MunitResult test_data_alias_raw_dispatch(const MunitParameter params[], void* data) {
+    (void)params;
+    (void)data;
+    Fixture fixture;
+    fixture_open(&fixture, 4, 4, 0);
+    select_application_raw(&fixture);
+
+    const uint8_t write[] = {
+        0x90, WriteDataIso, 0, 0, 11, DataFile, 0, 0, 0, 4, 0, 0, 1, 2, 3, 4, 0};
+    uint8_t response[DFC_READER_MAX_RESPONSE];
+    size_t response_len;
+    exchange_apdu(&fixture, write, sizeof(write), response, &response_len);
+    assert_status(response, response_len, DFC_STATUS_OK);
+    const uint8_t expected[] = {1, 2, 3, 4};
+    munit_assert_memory_equal(
+        sizeof(expected), dfc_file_data(&fixture.credential, fixture.data_file), expected);
+
+    const uint8_t read[] = {0x90, ReadDataIso, 0, 0, 7, DataFile, 0, 0, 0, 4, 0, 0, 0};
+    exchange_apdu(&fixture, read, sizeof(read), response, &response_len);
+    assert_status(response, response_len, DFC_STATUS_OK);
+    munit_assert_size(response_len, ==, sizeof(expected) + 2);
+    munit_assert_memory_equal(sizeof(expected), response, expected);
 
     fixture_close(&fixture);
     return MUNIT_OK;
@@ -544,6 +581,12 @@ static MunitTest tests[] = {
     {"/full-extent", test_full_extent, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
     {"/raw-dispatch-and-errors",
      test_raw_dispatch_and_errors,
+     NULL,
+     NULL,
+     MUNIT_TEST_OPTION_NONE,
+     NULL},
+    {"/data-alias-raw-dispatch",
+     test_data_alias_raw_dispatch,
      NULL,
      NULL,
      MUNIT_TEST_OPTION_NONE,

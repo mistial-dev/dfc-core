@@ -17,6 +17,56 @@
 
 #include "dfc_reader_test_link.h"
 
+static MunitResult test_iso_append_record_helpers(const MunitParameter params[], void* data) {
+    (void)params;
+    (void)data;
+    const uint8_t record[] = {0xA5, 0x5A};
+    uint8_t apdu[300];
+    size_t apdu_len = 0;
+    munit_assert_int(
+        dfc_reader_iso_append_record_apdu(3, record, sizeof(record), apdu, sizeof(apdu), &apdu_len),
+        ==,
+        DfcReaderOk);
+    const uint8_t expected[] = {0x00, 0xE2, 0x00, 0x18, 0x02, 0xA5, 0x5A};
+    munit_assert_size(apdu_len, ==, sizeof(expected));
+    munit_assert_memory_equal(sizeof(expected), apdu, expected);
+
+    uint8_t long_record[256] = {0};
+    munit_assert_int(
+        dfc_reader_iso_append_record_apdu(
+            0, long_record, sizeof(long_record), apdu, sizeof(apdu), &apdu_len),
+        ==,
+        DfcReaderOk);
+    const uint8_t extended_header[] = {0x00, 0xE2, 0x00, 0x00, 0x00, 0x01, 0x00};
+    munit_assert_memory_equal(sizeof(extended_header), apdu, extended_header);
+    munit_assert_size(apdu_len, ==, sizeof(long_record) + sizeof(extended_header));
+
+    const uint8_t response[] = {0x11, 0x22, 0x6A, 0x82};
+    const uint8_t* response_data = NULL;
+    size_t response_data_len = 0;
+    uint16_t status_word = 0;
+    munit_assert_int(
+        dfc_reader_iso7816_parse_response(
+            response, sizeof(response), &response_data, &response_data_len, &status_word),
+        ==,
+        DfcReaderOk);
+    munit_assert_ptr_equal(response_data, response);
+    munit_assert_size(response_data_len, ==, 2);
+    munit_assert_uint(status_word, ==, 0x6A82);
+
+    munit_assert_int(
+        dfc_reader_iso_append_record_apdu(
+            31, record, sizeof(record), apdu, sizeof(apdu), &apdu_len),
+        ==,
+        DfcReaderInvalid);
+    munit_assert_int(
+        dfc_reader_iso7816_parse_response(
+            response, 1, &response_data, &response_data_len, &status_word),
+        ==,
+        DfcReaderInvalid);
+    return MUNIT_OK;
+}
+
 static void assert_emulator_unchanged(const DfcEmulator* before, const Link* link) {
     munit_assert_memory_equal(sizeof(*before), before, link->picc->emulator);
 }
@@ -2204,8 +2254,8 @@ static MunitResult
             munit_assert_memory_equal(
                 response_len,
                 response,
-                ((uint8_t[]){DFC_ISO7816_SW_WRONG_PARAMETERS_HI,
-                             DFC_ISO7816_SW_WRONG_PARAMETERS_LO}));
+                ((uint8_t[]){
+                    DFC_ISO7816_SW_WRONG_PARAMETERS_HI, DFC_ISO7816_SW_WRONG_PARAMETERS_LO}));
         }
     }
 
@@ -4313,6 +4363,12 @@ static MunitResult test_delegated_application(const MunitParameter params[], voi
 #endif
 
 static MunitTest tests[] = {
+    {"/iso-append-record-helpers",
+     test_iso_append_record_helpers,
+     NULL,
+     NULL,
+     MUNIT_TEST_OPTION_NONE,
+     NULL},
     {"/command-output-capacity-retries",
      test_command_output_capacity_retries,
      NULL,

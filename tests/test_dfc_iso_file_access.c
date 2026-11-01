@@ -1,6 +1,7 @@
 #include "munit/munit.h"
 #include "dfc_virtual_picc_test_helpers.h"
 #include "dfc_emulator_i.h"
+#include "dfc_emulator_commands_i.h"
 #include "dfc_crypto_internal.h"
 #include "des_cmac.h"
 
@@ -99,8 +100,9 @@ static void assert_conditions_not_satisfied(const uint8_t* response, size_t resp
     munit_assert_memory_equal(
         2,
         response,
-        ((uint8_t[]){DFC_ISO7816_SW_CONDITIONS_NOT_SATISFIED_HI,
-                     DFC_ISO7816_SW_CONDITIONS_NOT_SATISFIED_LO}));
+        ((uint8_t[]){
+            DFC_ISO7816_SW_CONDITIONS_NOT_SATISFIED_HI,
+            DFC_ISO7816_SW_CONDITIONS_NOT_SATISFIED_LO}));
 }
 
 #if DFC_ENABLE_TRANSACTION_MAC
@@ -117,11 +119,15 @@ static MunitResult
     const uint8_t read_binary[] = {0, DFC_ISO7816_INS_READ_BINARY, 0, 0, 3};
     const uint8_t update_binary[] = {0, DFC_ISO7816_INS_UPDATE_BINARY, 0, 0, 1, 0xA5};
     const uint8_t read_record[] = {0, DFC_ISO7816_INS_READ_RECORD, 1, 0, 3};
-    const uint8_t* commands[] = {read_binary, update_binary, read_record};
+    const uint8_t append_record[] = {0, DFC_ISO7816_INS_APPEND_RECORD, 0, 0, 1, 0xA5};
+    const uint8_t* commands[] = {read_binary, update_binary, read_record, append_record};
     const size_t command_lengths[] = {
-        sizeof(read_binary), sizeof(update_binary), sizeof(read_record)};
+        sizeof(read_binary), sizeof(update_binary), sizeof(read_record), sizeof(append_record)};
     const uint8_t file_types[] = {
-        DFC_FILE_TYPE_STANDARD_DATA, DFC_FILE_TYPE_STANDARD_DATA, DFC_FILE_TYPE_LINEAR_RECORD};
+        DFC_FILE_TYPE_STANDARD_DATA,
+        DFC_FILE_TYPE_STANDARD_DATA,
+        DFC_FILE_TYPE_LINEAR_RECORD,
+        DFC_FILE_TYPE_LINEAR_RECORD};
 
     for(size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++) {
         DfcCredential credential;
@@ -218,9 +224,10 @@ static MunitResult
             munit_assert_size(response_len, ==, returned[i] + 2);
             bool reports_short_eof = generation == DfcGenerationEv1 && short_eof[i];
             const uint8_t* expected_status =
-                reports_short_eof ? ((uint8_t[]){DFC_ISO7816_SW_EOF_BEFORE_LE_HI,
-                                                 DFC_ISO7816_SW_EOF_BEFORE_LE_LO}) :
-                                    ((uint8_t[]){DFC_ISO7816_SW_OK_HI, DFC_ISO7816_SW_OK_LO});
+                reports_short_eof ?
+                    ((uint8_t[]){
+                        DFC_ISO7816_SW_EOF_BEFORE_LE_HI, DFC_ISO7816_SW_EOF_BEFORE_LE_LO}) :
+                    ((uint8_t[]){DFC_ISO7816_SW_OK_HI, DFC_ISO7816_SW_OK_LO});
             munit_assert_memory_equal(2, response + returned[i], expected_status);
             dfc_virtual_picc_session_free(session);
         }
@@ -312,6 +319,147 @@ static MunitResult test_iso_record_access_family(const MunitParameter params[], 
     munit_assert_size(response_len, ==, 13);
     munit_assert_memory_equal(3, response, data);
     munit_assert_memory_equal(2, response + 11, ((uint8_t[]){0x90, 0x00}));
+    dfc_virtual_picc_session_free(session);
+    return MUNIT_OK;
+}
+
+static MunitResult test_iso_append_record(const MunitParameter params[], void* user_data) {
+    (void)params;
+    (void)user_data;
+    uint8_t response[8];
+    size_t response_len;
+    DfcCredential credential;
+    DfcVirtualPiccSession* session = prepare_session(&credential, DFC_FILE_TYPE_LINEAR_RECORD);
+    DfcFile* file = &credential.files[0];
+    file->access_rights = ACCESS_FREE;
+    file->state.record.size = 3;
+    file->state.record.max_records = 3;
+    file->state.record.count = 0;
+    munit_assert_true(dfc_file_resize(&credential, file, 9));
+    memset(dfc_file_data(&credential, file), 0xCC, 9);
+    session->emulator->selected_application = DfcEmulatorSelectedApplicationApp;
+    session->emulator->selected_app_index = file->app_index;
+
+    const uint8_t append_current[] = {0, DFC_ISO7816_INS_APPEND_RECORD, 0, 0, 2, 0xA1, 0xA2};
+    session->emulator->selected_application = DfcEmulatorSelectedApplicationPicc;
+    exchange(
+        session, append_current, sizeof(append_current), response, sizeof(response), &response_len);
+    assert_conditions_not_satisfied(response, response_len);
+    munit_assert_uint32(file->state.record.count, ==, 0);
+    session->emulator->selected_application = DfcEmulatorSelectedApplicationApp;
+
+    response_len = SIZE_MAX;
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_exchange(
+            session, append_current, sizeof(append_current), response, 1, &response_len),
+        ==,
+        DfcVirtualPiccStatusBufferTooSmall);
+    munit_assert_size(response_len, ==, 0);
+    munit_assert_uint32(file->state.record.count, ==, 0);
+
+    exchange(
+        session, append_current, sizeof(append_current), response, sizeof(response), &response_len);
+    munit_assert_memory_equal(2, response, ((uint8_t[]){0x90, 0x00}));
+    munit_assert_uint32(file->state.record.count, ==, 1);
+    munit_assert_memory_equal(
+        3, dfc_file_data(&credential, file), ((uint8_t[]){0xA1, 0xA2, 0x00}));
+    munit_assert_false(file->transaction_pending);
+
+    session->iso_file_selected = false;
+    uint8_t append_sfi[] = {
+        0,
+        DFC_ISO7816_INS_APPEND_RECORD,
+        0,
+        (uint8_t)((file->iso_file_id & 0x1F) << 3),
+        3,
+        0xB1,
+        0xB2,
+        0xB3};
+    exchange(session, append_sfi, sizeof(append_sfi), response, sizeof(response), &response_len);
+    munit_assert_memory_equal(2, response, ((uint8_t[]){0x90, 0x00}));
+    munit_assert_true(session->iso_file_selected);
+    munit_assert_uint32(file->state.record.count, ==, 2);
+    munit_assert_memory_equal(
+        3, dfc_file_data(&credential, file) + 3, ((uint8_t[]){0xB1, 0xB2, 0xB3}));
+
+    const uint8_t malformed[] = {0, DFC_ISO7816_INS_APPEND_RECORD, 0, 0, 2, 0x01};
+    exchange(session, malformed, sizeof(malformed), response, sizeof(response), &response_len);
+    munit_assert_memory_equal(2, response, ((uint8_t[]){0x67, 0x00}));
+    const uint8_t bad_p2[] = {0, DFC_ISO7816_INS_APPEND_RECORD, 0, 1, 1, 0x01};
+    exchange(session, bad_p2, sizeof(bad_p2), response, sizeof(response), &response_len);
+    munit_assert_memory_equal(2, response, ((uint8_t[]){0x6A, 0x86}));
+
+    const uint8_t append_full[] = {0, DFC_ISO7816_INS_APPEND_RECORD, 0, 0, 3, 1, 2, 3};
+    exchange(session, append_full, sizeof(append_full), response, sizeof(response), &response_len);
+    munit_assert_memory_equal(2, response, ((uint8_t[]){0x90, 0x00}));
+    exchange(session, append_full, sizeof(append_full), response, sizeof(response), &response_len);
+    assert_conditions_not_satisfied(response, response_len);
+
+    authenticate_ev2_as(session, 0);
+    exchange(session, append_full, sizeof(append_full), response, sizeof(response), &response_len);
+    assert_security_status(response, response_len);
+    dfc_virtual_picc_session_free(session);
+    return MUNIT_OK;
+}
+
+static MunitResult
+    test_iso_append_record_transaction_and_cyclic(const MunitParameter params[], void* user_data) {
+    (void)params;
+    (void)user_data;
+    uint8_t response[8];
+    size_t response_len;
+    DfcCredential credential;
+    DfcVirtualPiccSession* session = prepare_session(&credential, DFC_FILE_TYPE_LINEAR_RECORD);
+    DfcFile* file = &credential.files[0];
+    file->access_rights = ACCESS_FREE;
+    file->state.record.size = 3;
+    file->state.record.max_records = 3;
+    file->state.record.count = 0;
+    munit_assert_true(dfc_file_resize(&credential, file, 9));
+    session->emulator->selected_application = DfcEmulatorSelectedApplicationApp;
+    session->emulator->selected_app_index = file->app_index;
+
+    const uint8_t native_write[] = {
+        DFC_CMD_WRITE_RECORD, 0x0F, 0, 0, 0, 3, 0, 0, 0x11, 0x12, 0x13};
+    exchange(
+        session, native_write, sizeof(native_write), response, sizeof(response), &response_len);
+    munit_assert_size(response_len, ==, 1);
+    munit_assert_uint8(response[0], ==, DFC_STATUS_OK);
+    munit_assert_true(file->transaction_pending);
+
+    const uint8_t append_extended[] = {
+        0, DFC_ISO7816_INS_APPEND_RECORD, 0, 0, 0, 0, 3, 0x21, 0x22, 0x23};
+    exchange(
+        session,
+        append_extended,
+        sizeof(append_extended),
+        response,
+        sizeof(response),
+        &response_len);
+    munit_assert_memory_equal(2, response, ((uint8_t[]){0x90, 0x00}));
+    munit_assert_uint32(file->state.record.count, ==, 2);
+    munit_assert_memory_equal(
+        6, dfc_file_data(&credential, file), ((uint8_t[]){0x11, 0x12, 0x13, 0x21, 0x22, 0x23}));
+    munit_assert_false(file->transaction_pending);
+
+    file->type = DFC_FILE_TYPE_CYCLIC_RECORD;
+    file->state.record.count = 2;
+    memcpy(dfc_file_data(&credential, file), ((uint8_t[]){1, 1, 1, 2, 2, 2}), 6);
+    const uint8_t append_cyclic[] = {0, DFC_ISO7816_INS_APPEND_RECORD, 0, 0, 3, 3, 3, 3};
+    exchange(
+        session, append_cyclic, sizeof(append_cyclic), response, sizeof(response), &response_len);
+    munit_assert_memory_equal(2, response, ((uint8_t[]){0x90, 0x00}));
+    munit_assert_uint32(file->state.record.count, ==, 2);
+    munit_assert_memory_equal(
+        6, dfc_file_data(&credential, file), ((uint8_t[]){2, 2, 2, 3, 3, 3}));
+
+#if DFC_ENABLE_TRANSACTIONAL_DATA_FILES
+    dfc_emulator_command_transaction_set_record_operation(
+        session->emulator, file, RecordTransactionUpdate, 0);
+    exchange(
+        session, append_cyclic, sizeof(append_cyclic), response, sizeof(response), &response_len);
+    assert_conditions_not_satisfied(response, response_len);
+#endif
     dfc_virtual_picc_session_free(session);
     return MUNIT_OK;
 }
@@ -738,6 +886,13 @@ static MunitTest tests[] = {
      NULL},
     {"/record-access-family",
      test_iso_record_access_family,
+     NULL,
+     NULL,
+     MUNIT_TEST_OPTION_NONE,
+     NULL},
+    {"/append-record", test_iso_append_record, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
+    {"/append-record-transaction-cyclic",
+     test_iso_append_record_transaction_and_cyclic,
      NULL,
      NULL,
      MUNIT_TEST_OPTION_NONE,

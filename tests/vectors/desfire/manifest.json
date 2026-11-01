@@ -1878,6 +1878,34 @@
       }
     },
     {
+      "path": "v6/hardware/hardware_physical_ev3_2k_iso_chained_commands.vec",
+      "sha256": "5671d993428c1175d6c16a81fd3d88aa5eeb0bafd1ec2009b64d9d8ce75bbd82",
+      "size": 5297,
+      "role": "emulator-vector",
+      "metadata": {
+        "name": "genuine EV3 2K native ISO-chained commands and ISO Append Record",
+        "case-id": "hardware-physical-ev3-2k-iso-chained-commands",
+        "source": "physical-card-pcsc",
+        "origin": "physical-card",
+        "replayable": true,
+        "steps": 38
+      }
+    },
+    {
+      "path": "v6/hardware/hardware_physical_ev3_2k_terminal_configuration.vec",
+      "sha256": "c6b50c1d264337e088efb07353a49440a25cef7f02e66ff76afaf62d2c8bf759",
+      "size": 2254,
+      "role": "emulator-vector",
+      "metadata": {
+        "name": "genuine EV3 2K Random ID and format-disable terminal configuration",
+        "case-id": "hardware-physical-ev3-2k-terminal-configuration",
+        "source": "physical-card-pcsc",
+        "origin": "physical-card",
+        "replayable": true,
+        "steps": 37
+      }
+    },
+    {
       "path": "v6/hardware/hardware_physical_ev3_4k_dam-auth-disabled.vec",
       "sha256": "28d049b9bbadc7b2d9f4c5a4bd96bfaae528def348264a8c4e97b6c6003775e3",
       "size": 598,
