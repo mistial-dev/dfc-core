@@ -2597,6 +2597,8 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_exchange(
     uint8_t* response,
     size_t response_capacity,
     size_t* response_len) {
+    if(!session || !command || !response || !response_len)
+        return DfcVirtualPiccStatusProtocolError;
     dfc_random_operation_begin();
     // The direct API is an alternative to ISO-DEP framing, not a continuation of
     // it, and both share one staging area and one command-chain buffer. A direct
@@ -2619,7 +2621,8 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_exchange(
         return DfcVirtualPiccStatusProtocolError;
     }
 #if DFC_ENABLE_SDM
-    finalize_standard_iso_sdm_boundary(session, sdm_facts, status, response, *response_len);
+    if(status == DfcVirtualPiccStatusOk)
+        finalize_standard_iso_sdm_boundary(session, sdm_facts, status, response, *response_len);
 #endif
     return status;
 }

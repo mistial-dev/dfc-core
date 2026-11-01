@@ -2717,7 +2717,32 @@ static MunitResult
     return MUNIT_OK;
 }
 
+static MunitResult test_direct_exchange_null_outputs(const MunitParameter params[], void* user_data) {
+    (void)params;
+    (void)user_data;
+    DfcCredential credential;
+    load_standard_credential(&credential);
+    DfcVirtualPiccSession* session = dfc_virtual_picc_session_alloc(&credential);
+    munit_assert_not_null(session);
+    DfcVirtualPiccActivation activation;
+    munit_assert_int(dfc_virtual_picc_scan_iso14443a(session, &activation), ==, DfcVirtualPiccStatusOk);
+    const uint8_t command[] = {0x00, 0xB0, 0x00, 0x00, 0x01};
+    uint8_t response[64];
+    size_t response_len = 0;
+    munit_assert_int(dfc_virtual_picc_iso_dep_exchange(session, command, sizeof(command),
+        response, sizeof(response), NULL), ==, DfcVirtualPiccStatusProtocolError);
+    munit_assert_int(dfc_virtual_picc_iso_dep_exchange(session, command, sizeof(command),
+        NULL, sizeof(response), &response_len), ==, DfcVirtualPiccStatusProtocolError);
+    munit_assert_int(dfc_virtual_picc_iso_dep_exchange(NULL, command, sizeof(command),
+        response, sizeof(response), &response_len), ==, DfcVirtualPiccStatusProtocolError);
+    munit_assert_int(dfc_virtual_picc_iso_dep_exchange(session, NULL, sizeof(command),
+        response, sizeof(response), &response_len), ==, DfcVirtualPiccStatusProtocolError);
+    dfc_virtual_picc_session_free(session);
+    return MUNIT_OK;
+}
+
 static MunitTest tests[] = {
+    {"/direct-exchange-null-outputs", test_direct_exchange_null_outputs, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL},
     {"/sdm-read-family-and-boundary-lifecycle",
      test_sdm_read_family_and_boundary_lifecycle,
      NULL,
