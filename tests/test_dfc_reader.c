@@ -2254,8 +2254,8 @@ static MunitResult
             munit_assert_memory_equal(
                 response_len,
                 response,
-                ((uint8_t[]){
-                    DFC_ISO7816_SW_WRONG_PARAMETERS_HI, DFC_ISO7816_SW_WRONG_PARAMETERS_LO}));
+                ((uint8_t[]){DFC_ISO7816_SW_WRONG_PARAMETERS_HI,
+                             DFC_ISO7816_SW_WRONG_PARAMETERS_LO}));
         }
     }
 
