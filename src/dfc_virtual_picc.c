@@ -2068,22 +2068,24 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_frame_exchange(
         const uint8_t* inf = frame + offset;
         size_t inf_len = frame_len - offset;
 
-        // A response chain is advanced only by R-blocks. Retransmit the last
-        // PICC block for a duplicate I-block, but never dispatch a new command
-        // while the previous answer still owns transport storage.
-        if(iso_dep_response_chain_is_pending(session)) {
-            if(sequence != session->expected_pcd_sequence && session->last_picc_block_len > 0) {
-                if(response_capacity < session->last_picc_block_len)
-                    return DfcVirtualPiccStatusBufferTooSmall;
-                memcpy(response, session->last_picc_block, session->last_picc_block_len);
-                *response_len = session->last_picc_block_len;
-                return DfcVirtualPiccStatusOk;
-            }
-            return DfcVirtualPiccStatusProtocolError;
-        }
+        // A response chain is advanced only by R-blocks. The genuine EV3 stays
+        // silent for every injected I-block here; preserve the response bytes
+        // and require an R-block to retransmit or continue them.
+        if(iso_dep_response_chain_is_pending(session)) return DfcVirtualPiccStatusProtocolError;
 
         if(sequence != session->expected_pcd_sequence) {
-            // ISO14443-4 protocol errors leave the PICC in receive mode.
+            // Repeated request-chain fragments are acknowledged with the next
+            // expected block number and are never appended a second time.
+            if(session->pending_command_len > 0) {
+                return build_iso_dep_r_block(
+                    session->expected_pcd_sequence,
+                    false,
+                    (pcb & DFC_ISO_DEP_CID) != 0,
+                    session->iso_dep_cid,
+                    response,
+                    response_capacity,
+                    response_len);
+            }
             return DfcVirtualPiccStatusProtocolError;
         }
 
@@ -2134,7 +2136,8 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_frame_exchange(
 
         if(more) {
             session->expected_pcd_sequence ^= DFC_ISO_DEP_SEQUENCE_BIT;
-            session->picc_sequence = session->expected_pcd_sequence;
+            // R-blocks acknowledge the PCD sequence but do not consume the
+            // PICC's independent I-block sequence number.
             return build_iso_dep_r_block(
                 sequence,
                 false,
@@ -2172,7 +2175,9 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_frame_exchange(
         session->pending_response_len = apdu_response_len;
         tx->size_bytes = apdu_response_len;
         session->pending_response_offset = 0;
-        session->picc_sequence = sequence;
+        // Each response chain starts at PICC block zero, independently of the
+        // PCD request sequence. Later response blocks alternate from there.
+        session->picc_sequence = 0;
         if(offset > 1) {
             memcpy(session->pending_response_prefix, frame, offset);
             session->pending_response_prefix_len = offset;
@@ -2227,8 +2232,6 @@ DfcVirtualPiccStatus dfc_virtual_picc_iso_dep_frame_exchange(
         if(session->pending_response_len == 0) return DfcVirtualPiccStatusProtocolError;
         DfcVirtualPiccStatus status = write_and_remember_iso_dep_response_block(
             session, response, response_capacity, response_len);
-        if(status == DfcVirtualPiccStatusOk)
-            session->expected_pcd_sequence = session->picc_sequence;
         return status;
     }
 

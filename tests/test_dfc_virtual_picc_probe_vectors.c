@@ -139,7 +139,7 @@ static MunitResult test_trace_reader_sequence_handles_get_key_settings_and_mfp_p
             &response_len),
         ==,
         DfcVirtualPiccStatusOk);
-    munit_assert_memory_equal(4, response, ((uint8_t[]){0x0B, 0x00, 0x6A, 0x82}));
+    munit_assert_memory_equal(4, response, ((uint8_t[]){0x0A, 0x00, 0x6A, 0x82}));
 
     const uint8_t select_missing_native_aid[] = {
         0x0A, 0x00, 0x90, 0x5A, 0x00, 0x00, 0x03, 0xE3, 0x84, 0xF4, 0x00};
@@ -165,7 +165,7 @@ static MunitResult test_trace_reader_sequence_handles_get_key_settings_and_mfp_p
             session, select_app, sizeof(select_app), response, sizeof(response), &response_len),
         ==,
         DfcVirtualPiccStatusOk);
-    munit_assert_memory_equal(4, response, ((uint8_t[]){0x0B, 0x00, 0x91, 0x00}));
+    munit_assert_memory_equal(4, response, ((uint8_t[]){0x0A, 0x00, 0x91, 0x00}));
 
     const uint8_t get_key_settings[] = {0x0A, 0x00, 0x90, 0x45, 0x00, 0x00, 0x00};
     munit_assert_int(
@@ -196,7 +196,7 @@ static MunitResult test_trace_reader_sequence_handles_get_key_settings_and_mfp_p
         ==,
         DfcVirtualPiccStatusOk);
     munit_assert_memory_equal(
-        3, response, ((uint8_t[]){0x0B, 0x00, DFC_STATUS_ILLEGAL_COMMAND_CODE}));
+        3, response, ((uint8_t[]){0x0A, 0x00, DFC_STATUS_ILLEGAL_COMMAND_CODE}));
 
     dfc_virtual_picc_session_free(session);
     return MUNIT_OK;

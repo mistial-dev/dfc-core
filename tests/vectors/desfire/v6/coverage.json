@@ -29,13 +29,15 @@
     {
       "id": "native-iso-dep-chained-data-and-records",
       "evidence": [
-        "hardware/hardware_physical_ev3_2k_iso_chained_commands.vec"
+        "hardware/hardware_physical_ev3_2k_iso_chained_commands.vec",
+        "hardware/hardware_physical_ev3_2k_iso_dep_request_chaining.vec"
       ]
     },
     {
       "id": "iso7816-append-record",
       "evidence": [
-        "hardware/hardware_physical_ev3_2k_iso_chained_commands.vec"
+        "hardware/hardware_physical_ev3_2k_iso_chained_commands.vec",
+        "hardware/hardware_physical_ev3_2k_iso_dep_request_chaining.vec"
       ]
     },
     {

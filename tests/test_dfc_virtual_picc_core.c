@@ -871,8 +871,9 @@ static MunitResult test_iso_dep_reader_chaining(const MunitParameter params[], v
         dfc_virtual_picc_iso_dep_frame_exchange(
             session, first, sizeof(first), response, sizeof(response), &response_len),
         ==,
-        DfcVirtualPiccStatusProtocolError);
-    munit_assert_size(response_len, ==, 0);
+        DfcVirtualPiccStatusOk);
+    munit_assert_size(response_len, ==, 1);
+    munit_assert_uint8(response[0], ==, 0xA3);
     munit_assert_size(session->pending_command_len, ==, 2);
     uint8_t oversized[sizeof(session->pending_command)] = {0x13};
     munit_assert_int(
@@ -946,7 +947,7 @@ static MunitResult test_iso_dep_reader_chaining(const MunitParameter params[], v
         ==,
         DfcVirtualPiccStatusOk);
     munit_assert_size(response_len, ==, 3);
-    munit_assert_memory_equal(3, response, ((uint8_t[]){0x03, 0x90, 0x00}));
+    munit_assert_memory_equal(3, response, ((uint8_t[]){0x02, 0x90, 0x00}));
     dfc_virtual_picc_session_free(session);
     return MUNIT_OK;
 }
@@ -1608,7 +1609,7 @@ static MunitResult
     munit_assert_size(response_len, ==, 11);
     munit_assert_uint8(response[0], ==, 0x03);
     munit_assert_memory_equal(10, response + 1, session->emulator->tx_buffer->data + 50);
-    const uint8_t select[] = {0x02, 0x00, 0xA4, 0x04, 0x00, 0x07, 0xD2, 0x76, 0, 0, 0x85, 1, 0};
+    const uint8_t select[] = {0x03, 0x00, 0xA4, 0x04, 0x00, 0x07, 0xD2, 0x76, 0, 0, 0x85, 1, 0};
     munit_assert_int(
         dfc_virtual_picc_iso_dep_frame_exchange(
             session, select, sizeof(select), response, sizeof(response), &response_len),
@@ -1788,7 +1789,7 @@ static void assert_repeated_reader_frame_cycle(DfcVirtualPiccSession* session) {
             session, select_app, sizeof(select_app), response, sizeof(response), &response_len),
         ==,
         DfcVirtualPiccStatusOk);
-    munit_assert_memory_equal(3, response, ((uint8_t[]){0x03, 0x91, 0x00}));
+    munit_assert_memory_equal(3, response, ((uint8_t[]){0x02, 0x91, 0x00}));
 
     const uint8_t get_file_settings[] = {0x02, 0x90, 0xF5, 0x00, 0x00, 0x01, 0x0F, 0x00};
     munit_assert_int(
@@ -1813,7 +1814,7 @@ static void assert_repeated_reader_frame_cycle(DfcVirtualPiccSession* session) {
         ==,
         DfcVirtualPiccStatusOk);
     munit_assert_size(response_len, >, 2);
-    munit_assert_uint8(response[0], ==, 0x03);
+    munit_assert_uint8(response[0], ==, 0x02);
     munit_assert_uint8(response[response_len - 2], ==, 0x91);
     munit_assert_uint8(response[response_len - 1], ==, 0x00);
 

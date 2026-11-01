@@ -872,6 +872,14 @@ static bool assert_path(
         if(strcmp(field, "iso_file_id") == 0) return cmp_num(st, path, fl->iso_file_id, want);
         if(strcmp(field, "data_len") == 0)
             return cmp_num(st, path, (unsigned long)fl->data_len, want);
+        if(strcmp(field, "record_count") == 0) {
+            if(fl->type != DFC_FILE_TYPE_LINEAR_RECORD &&
+               fl->type != DFC_FILE_TYPE_CYCLIC_RECORD) {
+                fail(st, "assert %s: file is not a record file", path);
+                return false;
+            }
+            return cmp_num(st, path, (unsigned long)fl->state.record.count, want);
+        }
         if(strcmp(field, "data") == 0) {
             const uint8_t* d = dfc_file_data_const(c, fl);
             if(!d && fl->data_len > 0) {

@@ -1221,7 +1221,7 @@
     },
     {
       "path": "v4/emulator/probe_reader_sequence.vec",
-      "sha256": "59f92296ed2b0818199a68a3389a6fb378d80563b9b9543a27197029fe4f46f4",
+      "sha256": "331b0386b1c573bd275a32004271b067cc54bf898c0de40524a8ca00dca1ac6c",
       "size": 1707,
       "role": "emulator-vector",
       "metadata": {
@@ -1892,6 +1892,20 @@
       }
     },
     {
+      "path": "v6/hardware/hardware_physical_ev3_2k_iso_dep_request_chaining.vec",
+      "sha256": "15f2a7f8cae2a4e6045d4a3ad6de98b5e8896b257513b3b72e1dc4a1ec6bedbc",
+      "size": 4515,
+      "role": "emulator-vector",
+      "metadata": {
+        "name": "genuine EV3 2K ISO-DEP request chaining boundaries",
+        "case-id": "hardware-physical-ev3-2k-iso-dep-request-chaining",
+        "source": "physical-card-proxmark3",
+        "origin": "physical-card",
+        "replayable": true,
+        "steps": 40
+      }
+    },
+    {
       "path": "v6/hardware/hardware_physical_ev3_2k_terminal_configuration.vec",
       "sha256": "c6b50c1d264337e088efb07353a49440a25cef7f02e66ff76afaf62d2c8bf759",
       "size": 2254,
@@ -2495,8 +2509,8 @@
     },
     {
       "path": "v6/synthetic/iso-dep-alternate-protocol-retry-reset.vec",
-      "sha256": "d4af762de5b669c7b33e289296aff38ed78c5602430912ac9af1a663b71e3c55",
-      "size": 1626,
+      "sha256": "ce3e98a47179f519f08a79ea18436a8be6c68a210e73a2f38527a99683902a2b",
+      "size": 1625,
       "role": "emulator-vector",
       "metadata": {
         "name": "alternate ISO-DEP wrong-sequence retry and field reset",
@@ -2621,7 +2635,7 @@
     },
     {
       "path": "v6/synthetic/random-failure-preserves-ev1-prepare-pc.vec",
-      "sha256": "9ae97d3595bd8ee098278c979249496d8140d643e74057a743acbaffdb46835d",
+      "sha256": "f26eed3d1b26f4a4d2c7369d2a880d30f749ce7b93f9d31a3a613750dfb3cdd9",
       "size": 1387,
       "role": "emulator-vector",
       "metadata": {

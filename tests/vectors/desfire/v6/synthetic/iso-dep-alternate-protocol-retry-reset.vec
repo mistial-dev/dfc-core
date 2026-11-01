@@ -19,12 +19,12 @@ exchange native CD0114E100E0EE100000 => 00
 exchange native C10300EEEE080000030000 => 00
 
 # Fragment an alternate WriteData APDU. A repeated first I-block has the old
-# sequence number, is rejected without a response, and leaves the partial APDU
-# available for the correctly numbered final block.
+# sequence number, is acknowledged with the next expected block number, and
+# leaves the partial APDU available for the correctly numbered final block.
 frame-exchange E080 => 0565810280
 frame-exchange 12908D00000B010000 => A2
-expect-error protocol-error frame-exchange 12908D00000B010000
-frame-exchange 0300040000DEADBEEF00 => 039100
+frame-exchange 12908D00000B010000 => A3
+frame-exchange 0300040000DEADBEEF00 => 029100
 assert files[0].data = DEADBEEF000000000000000000000000
 
 # Field loss retires an unfinished alternate WriteRecord request. After a new

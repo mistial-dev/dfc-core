@@ -396,7 +396,9 @@ static MunitResult
             sizeof(response),
             &response_len),
         ==,
-        DfcVirtualPiccStatusProtocolError);
+        DfcVirtualPiccStatusOk);
+    munit_assert_size(response_len, ==, 1);
+    munit_assert_uint8(response[0], ==, 0xA3);
     munit_assert_size(fixture.picc->pending_command_len, ==, pending_before);
 
     const uint8_t malformed_final[] = {0x03, 0, 4, 0, 0, 1, 2, 3};
@@ -422,6 +424,53 @@ static MunitResult
     munit_assert_memory_equal(
         sizeof(expected), dfc_file_data(&fixture.credential, fixture.data_file), expected);
 
+    fixture_close(&fixture);
+    return MUNIT_OK;
+}
+
+static MunitResult
+    test_iso_dep_duplicate_request_fragment(const MunitParameter params[], void* data) {
+    (void)params;
+    (void)data;
+    Fixture fixture;
+    fixture_open(&fixture, 4, 4, 0);
+    activate_iso_dep(&fixture);
+    const uint8_t first[] = {0x12, DFC_ISO7816_CLA_STANDARD, DFC_ISO7816_INS_APPEND_RECORD, 0, 0};
+    uint8_t response[DFC_VIRTUAL_PICC_MAX_BLOCK_SIZE];
+    size_t response_len = 0;
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_frame_exchange(
+            fixture.picc, first, sizeof(first), response, sizeof(response), &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_size(response_len, ==, 1);
+    munit_assert_uint8(response[0], ==, 0xA2);
+    size_t pending_len = fixture.picc->pending_command_len;
+
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_frame_exchange(
+            fixture.picc, first, sizeof(first), response, sizeof(response), &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_size(response_len, ==, 1);
+    munit_assert_uint8(response[0], ==, 0xA3);
+    munit_assert_size(fixture.picc->pending_command_len, ==, pending_len);
+
+    const uint8_t malformed_final[] = {0x03, 5, 0xAA};
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_frame_exchange(
+            fixture.picc,
+            malformed_final,
+            sizeof(malformed_final),
+            response,
+            sizeof(response),
+            &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_size(response_len, ==, 3);
+    munit_assert_uint8(response[0], ==, 0x02);
+    munit_assert_memory_equal(2, response + 1, ((uint8_t[]){0x67, 0x00}));
+    munit_assert_size(fixture.picc->pending_command_len, ==, 0);
     fixture_close(&fixture);
     return MUNIT_OK;
 }
@@ -683,6 +732,9 @@ static MunitResult
         ==,
         DfcVirtualPiccStatusOk);
     munit_assert_true((response[0] & 0x10) != 0);
+    uint8_t first_response[DFC_VIRTUAL_PICC_MAX_BLOCK_SIZE];
+    size_t first_response_len = response_len;
+    memcpy(first_response, response, response_len);
     size_t pending_len = fixture.picc->pending_response_len;
     size_t pending_offset = fixture.picc->pending_response_offset;
     uint8_t original = file_data[0];
@@ -697,6 +749,22 @@ static MunitResult
     munit_assert_uint8(file_data[0], ==, original);
     munit_assert_size(fixture.picc->pending_response_len, ==, pending_len);
     munit_assert_size(fixture.picc->pending_response_offset, ==, pending_offset);
+
+    write[0] = (uint8_t)(0x02 | (fixture.picc->expected_pcd_sequence ^ 1u));
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_frame_exchange(
+            fixture.picc, write, sizeof(write), response, sizeof(response), &response_len),
+        ==,
+        DfcVirtualPiccStatusProtocolError);
+    munit_assert_uint8(file_data[0], ==, original);
+    uint8_t retransmit = (uint8_t)(0xA2 | (fixture.picc->picc_sequence ^ 1u));
+    munit_assert_int(
+        dfc_virtual_picc_iso_dep_frame_exchange(
+            fixture.picc, &retransmit, 1, response, sizeof(response), &response_len),
+        ==,
+        DfcVirtualPiccStatusOk);
+    munit_assert_size(response_len, ==, first_response_len);
+    munit_assert_memory_equal(first_response_len, response, first_response);
 
     while(fixture.picc->pending_response_len > 0) {
         uint8_t ack = (uint8_t)(0xA2 | fixture.picc->picc_sequence);
@@ -1085,6 +1153,12 @@ static MunitTest tests[] = {
      NULL},
     {"/iso-dep-malformed-continuation-recovers",
      test_iso_dep_malformed_continuation_recovers,
+     NULL,
+     NULL,
+     MUNIT_TEST_OPTION_NONE,
+     NULL},
+    {"/iso-dep-duplicate-request-fragment",
+     test_iso_dep_duplicate_request_fragment,
      NULL,
      NULL,
      MUNIT_TEST_OPTION_NONE,
