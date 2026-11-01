@@ -231,7 +231,11 @@ class ReleaseProcessTests(unittest.TestCase):
         self.assertNotIn("../../../../tests/", sources)
 
         manifest = (ROOT / "bindings/rust/dfc-core/Cargo.toml").read_text(encoding="utf-8")
-        self.assertIn('exclude = ["tests/generated_bindings.rs"]', manifest)
+        # Both tests read files outside the package (the generated bindings, the committed
+        # replay plans), so neither may ship in the published crate.
+        self.assertIn(
+            'exclude = ["tests/generated_bindings.rs", "tests/replay_plans.rs"]', manifest
+        )
 
 
 if __name__ == "__main__":

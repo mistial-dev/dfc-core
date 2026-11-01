@@ -351,6 +351,7 @@ jobs:
         run: mkdir -p build && cp runtimes/${{ matrix.rid }}/native/* build/
       - run: dotnet test bindings/dotnet/Dfc.sln -c Release
       - name: Print the conformance vector replay counts
+        shell: bash
         run: |
           dotnet test bindings/dotnet/tests/Dfc.Tests/Dfc.Tests.csproj -c Release --no-build \
             --filter FullyQualifiedName~ReplayPlanTests \
