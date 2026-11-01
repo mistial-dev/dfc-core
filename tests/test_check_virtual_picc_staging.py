@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import check_virtual_picc_staging as lint  # noqa: E402
+import check_virtual_picc_staging as lint
 
 SOURCE = (lint.SOURCE_DIR / lint.PICC).read_text()
 FRAME = "dfc_virtual_picc_iso_dep_frame_exchange"
@@ -75,8 +75,10 @@ class StagingLintTests(unittest.TestCase):
         for statement in (
             "memcpy(session->pending_command, frame, frame_len);",
             "memcpy((*session).pending_command, frame, frame_len);",
-            "memcpy((uint8_t*)session + offsetof(DfcVirtualPiccSession, pending_command), "
-            "frame, frame_len);",
+            (
+                "memcpy((uint8_t*)session + offsetof(DfcVirtualPiccSession, pending_command), "
+                "frame, frame_len);"
+            ),
             "session->pending_command[0] = 1;",
         ):
             with self.subTest(statement=statement):

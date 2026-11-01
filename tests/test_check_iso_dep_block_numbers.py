@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import check_iso_dep_block_numbers as model  # noqa: E402
+import check_iso_dep_block_numbers as model
 
 PRELUDE = "scan\nframe-exchange E080 => 0565810280\n"
 

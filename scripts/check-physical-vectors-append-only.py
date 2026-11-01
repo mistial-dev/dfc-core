@@ -33,7 +33,7 @@ import sys
 VECTORS = "tests/vectors/desfire"
 # Horizontal whitespace of any kind, Unicode included, exactly as the vector
 # integrity check (which strips with str.strip) reads a header line.
-ORIGIN = re.compile(r"^[^\S\r\n]*origin[^\S\r\n]*:[^\S\r\n]*physical-card[^\S\r\n]*$", re.M)
+ORIGIN = re.compile(r"^[^\S\r\n]*origin[^\S\r\n]*:[^\S\r\n]*physical-card[^\S\r\n]*$", re.MULTILINE)
 CHANGES = "MDRT"  # modified, deleted, renamed, type changed
 # A capture can be marked provisional when it is first added (for example a batch
 # taken from a card that may turn out to be faulty). A provisional capture may be
@@ -41,7 +41,7 @@ CHANGES = "MDRT"  # modified, deleted, renamed, type changed
 # or renamed, and a capture cannot be made provisional afterwards (adding the
 # header would be an edit, which this gate rejects).
 PROVISIONAL = re.compile(
-    r"^[^\S\r\n]*capture-status[^\S\r\n]*:[^\S\r\n]*provisional[^\S\r\n]*$", re.M
+    r"^[^\S\r\n]*capture-status[^\S\r\n]*:[^\S\r\n]*provisional[^\S\r\n]*$", re.MULTILINE
 )
 
 

@@ -222,8 +222,7 @@ def functions(code: str) -> tuple[list[tuple[str, int, int]], list[int]]:
                 if found and found[-1][2] is None:
                     found[-1][2] = i
                 start = i + 1
-            if depth < 0:
-                depth = 0
+            depth = max(depth, 0)
         elif ch == ";" and depth == 0:
             start = i + 1
         elif ch == "#" and depth == 0 and (i == 0 or code[i - 1] == "\n"):
@@ -258,7 +257,7 @@ def lint_picc(text: str) -> list[str]:
     # guarded file has no use for dead blocks, so any constant condition is an error.
     # Checked on the raw text, so nothing can hide it.
     for constant in re.finditer(
-        r"^[ \t]*[#%][ \t]*:?[ \t]*if[ \t]+[0-9uUlL \t()+\-*|&!~]*(?://.*)?$", text, re.M
+        r"^[ \t]*[#%][ \t]*:?[ \t]*if[ \t]+[0-9uUlL \t()+\-*|&!~]*(?://.*)?$", text, re.MULTILINE
     ):
         line = text.count("\n", 0, constant.start()) + 1
         errors.append(f"{PICC}:{line}: a constant `#if` is not allowed in this file")
@@ -275,7 +274,7 @@ def lint_picc(text: str) -> list[str]:
     def where(position: int, name: str) -> str:
         return f"{PICC}:{source.line_of(position)}: in {name}"
 
-    for define in re.finditer(r"^[ \t]*#[ \t]*define[^\n]*", code, re.M):
+    for define in re.finditer(r"^[ \t]*#[ \t]*define[^\n]*", code, re.MULTILINE):
         if re.search(PROTECTED, define.group()):
             errors.append(
                 f"{where(define.start(), '<macro>')}: a macro may not name a protected field"
@@ -354,13 +353,13 @@ def lint_picc(text: str) -> list[str]:
                 or re.search(ADDRESS_OF + PATH + r"\bpending_command_len\b", statement)
             ):
                 errors.append(f"{here}: pending_command_len is written")
-            if re.search(
+            overwrites_session = re.search(
                 r"\b(?:memcpy|memmove|memset)\s*\(\s*(?:\(\s*[\w\s]*\*\s*\)\s*)?\*?\s*"
                 r"(?:session|s)\s*[,)]",
                 statement,
-            ) or re.search(r"(?<![\w>.])\*\s*(?:session|s)\s*=(?!=)", statement):
-                if name not in SESSION_INITIALISERS:
-                    errors.append(f"{here}: the whole session struct is overwritten")
+            ) or re.search(r"(?<![\w>.])\*\s*(?:session|s)\s*=(?!=)", statement)
+            if overwrites_session and name not in SESSION_INITIALISERS:
+                errors.append(f"{here}: the whole session struct is overwritten")
             if re.search(r"\b(?:memcpy|memmove|memset)\s*\(\s*&", statement):
                 errors.append(f"{here}: copy into the address of a struct member")
         if not inside and name not in CHAIN_WRITERS and "command_chain" in statement:
@@ -454,7 +453,7 @@ def lint_other(name: str, text: str, header: bool = False) -> list[str]:
             problems.append(f"{name}: token pasting that could build a protected field name")
     if header:
         # The session struct declares the fields; nothing else may name them.
-        for define in re.finditer(r"^[ \t]*#[ \t]*define[^\n]*", code, re.M):
+        for define in re.finditer(r"^[ \t]*#[ \t]*define[^\n]*", code, re.MULTILINE):
             if re.search(PROTECTED, define.group()):
                 problems.append(f"{name}: a macro names a protected field")
         for opening in re.finditer(r"\)\s*\{", code):
